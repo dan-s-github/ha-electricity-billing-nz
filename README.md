@@ -80,4 +80,4 @@ off-peak) that period *t* falls in, using the lines company's peak windows.
 
 1. Vector network, one retailer plan, price sensors and `price_at`.
 2. Bill reconciliation sensors and billing-cycle options.
-3. More lines companies and a HACS release.
+3. More lines companies and a marketplace release.
