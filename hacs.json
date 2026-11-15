@@ -1,0 +1,6 @@
+{
+  "name": "Electricity Billing NZ",
+  "content_in_root": false,
+  "country": ["NZ"],
+  "homeassistant": "2026.9.0"
+}

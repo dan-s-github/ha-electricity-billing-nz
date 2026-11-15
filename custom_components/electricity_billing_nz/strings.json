@@ -1,0 +1,17 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "Device is already configured",
+      "already_in_progress": "Configuration flow is already in progress"
+    },
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "data": {
+          "name": "Name"
+        },
+        "description": "Enter a name for this Electricity Billing NZ instance."
+      }
+    }
+  }
+}

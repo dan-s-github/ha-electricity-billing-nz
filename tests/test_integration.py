@@ -1,0 +1,44 @@
+"""Test integration setup and unload for Electricity Billing NZ."""
+
+from unittest.mock import AsyncMock, patch
+
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.core import HomeAssistant
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.electricity_billing_nz.const import DOMAIN
+
+
+async def test_setup_and_unload_entry(hass: HomeAssistant) -> None:
+    """Test a config entry sets up, stores runtime data and unloads."""
+    entry = MockConfigEntry(domain=DOMAIN, title="Main")
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.runtime_data.title == "Main"
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_unload_entry_platform_failure(hass: HomeAssistant) -> None:
+    """Test the entry stays loaded when a platform fails to unload."""
+    entry = MockConfigEntry(domain=DOMAIN, title="Main")
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    with patch.object(
+        hass.config_entries,
+        "async_unload_platforms",
+        AsyncMock(return_value=False),
+    ):
+        assert not await hass.config_entries.async_unload(entry.entry_id)
+
+    assert entry.state is ConfigEntryState.FAILED_UNLOAD

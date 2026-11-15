@@ -1,0 +1,20 @@
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
+_commit: 7aed512
+_src_path: https://github.com/dan-s-github/ha-custom-integration-template.git
+author_email: daniel@mohni.net
+author_name: dan-s-github
+brand_icon_path: ''
+config_flow_class: ElectricityBillingNzConfigFlow
+copyright_year: '2026'
+domain: electricity_billing_nz
+github_username: dan-s-github
+ha_dependencies_csv: ''
+hacs_country_csv: NZ
+include_sensor_platform: true
+integration_name: Electricity Billing NZ
+iot_class: calculated
+open_source_license: MIT
+project_slug: ha-electricity-billing-nz
+requirements_csv: holidays
+sensor_entity_class: ElectricityBillingNzSensor
+version: 0.1.0

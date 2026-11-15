@@ -1,8 +1,15 @@
 # Electricity Billing NZ
 
-> **Status: planned.** Nothing is implemented yet. This README describes what
-> the integration will do. The repo will be scaffolded from
-> [ha-custom-integration-template](https://github.com/dan-s-github/ha-custom-integration-template).
+[![Marketplace][marketplacebadge]][marketplace]
+[![Home Assistant][ha-shield]][ha]
+[![Python Version][python-shield]][python]
+[![License][license-shield]](LICENSE)
+[![Tests][tests-shield]][tests]
+[![Code Style: Ruff][ruff-shield]][ruff]
+
+> **Status: in development.** Scaffolded from
+> [ha-custom-integration-template](https://github.com/dan-s-github/ha-custom-integration-template);
+> the features below aren't implemented yet.
 
 A Home Assistant custom integration that works out what you actually pay per
 kWh on a New Zealand wholesale (spot) pass-through electricity plan. It is a
@@ -70,6 +77,37 @@ off-peak) that period *t* falls in, using the lines company's peak windows.
 - **Services**: `price_at` (price for a given time and spot price, for
   backtests) and `export_versions` (dump the configured rate versions).
 
+## Installation
+
+Once there is a first release:
+
+### Marketplace (recommended)
+
+Home Assistant 2026.11 or newer:
+
+[![Open your Home Assistant instance and open this repository in the Marketplace.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dan-s-github&repository=ha-electricity-billing-nz&category=Integration)
+
+Or by hand:
+
+1. Go to Settings -> Marketplace and select **Add from link**.
+2. Enter `dan-s-github/ha-electricity-billing-nz` and select **Add**.
+3. Open the repository's page, select **Install**, then restart Home Assistant.
+4. Add the integration from Settings -> Devices & Services.
+
+On Home Assistant 2026.10 or older, add it as a custom repository in HACS
+instead.
+
+### Manual
+
+1. Copy `custom_components/electricity_billing_nz` into your Home Assistant
+   `custom_components` directory.
+2. Restart Home Assistant.
+3. Add the integration from Settings -> Devices & Services.
+
+Requires Home Assistant 2026.9.0 or newer and
+[ha-electricityinfo-nz](https://github.com/dan-s-github/ha-electricityinfo-nz)
+for the wholesale price.
+
 ## Not in scope
 
 - Fetching wholesale prices (use ha-electricityinfo-nz).
@@ -80,4 +118,29 @@ off-peak) that period *t* falls in, using the lines company's peak windows.
 
 1. Vector network, one retailer plan, price sensors and `price_at`.
 2. Bill reconciliation sensors and billing-cycle options.
-3. More lines companies and a HACS release.
+3. More lines companies and a marketplace release.
+
+## Development
+
+Needs [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.6 or newer.
+
+```bash
+./scripts/setup  # creates uv.lock; commit it, the GitHub workflows need it
+./scripts/lint
+uv run --group dev pytest
+./scripts/develop  # runs Home Assistant with this integration
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the release process and CI.
+
+[marketplace]: https://www.home-assistant.io/integrations/marketplace/
+[marketplacebadge]: https://img.shields.io/badge/Marketplace-Custom-orange.svg?style=flat&logo=homeassistant&logoColor=white
+[ha-shield]: https://img.shields.io/badge/Home%20Assistant-2026.9.0+-blue.svg?style=flat&logo=homeassistant&logoColor=white
+[ha]: https://www.home-assistant.io/
+[python-shield]: https://img.shields.io/badge/python-3.14+-blue.svg?style=flat&logo=python&logoColor=white
+[python]: https://www.python.org/
+[license-shield]: https://img.shields.io/github/license/dan-s-github/ha-electricity-billing-nz.svg?style=flat
+[tests-shield]: https://img.shields.io/github/actions/workflow/status/dan-s-github/ha-electricity-billing-nz/ci.yml?branch=main&style=flat&logo=github
+[tests]: https://github.com/dan-s-github/ha-electricity-billing-nz/actions/workflows/ci.yml
+[ruff-shield]: https://img.shields.io/badge/code%20style-ruff-000000.svg?style=flat&logo=ruff&logoColor=white
+[ruff]: https://github.com/astral-sh/ruff
