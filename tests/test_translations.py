@@ -2,9 +2,9 @@
 
 from pathlib import Path
 
-COMPONENT_DIR = (
-    Path(__file__).parent.parent / "custom_components" / "electricity_billing_nz"
-)
+from custom_components.electricity_billing_nz.const import DOMAIN
+
+COMPONENT_DIR = Path(__file__).parent.parent / "custom_components" / DOMAIN
 
 
 def test_translations_have_no_key_references() -> None:
