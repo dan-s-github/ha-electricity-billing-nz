@@ -1,0 +1,39 @@
+# Vector (Auckland network) residential time-of-use prices, ex GST, NZD.
+# Transcribed from the Pricing Schedule and Policy. Transmission is not here:
+# Vector bills it to retailers monthly by GXP share, so it is a retailer charge.
+distributor: vector
+name: Vector
+sources:
+  v2026.1: https://media.vector.co.nz/production/documents/electricitypricescheduleseffectivefrom1april2026.pdf
+categories:
+  ARHLC:
+    - effective_from: 2026-04-01
+      schedule_version: v2026.1
+      daily: 0.9000
+      import: {peak: 0.1504, offpeak: 0.0457}
+      export_credit: {peak: 0.0524, offpeak: 0.0}
+      bands: vector_tou_2026
+  ARHLU:
+    - effective_from: 2026-04-01
+      schedule_version: v2026.1
+      daily: 0.9000
+      import: {peak: 0.1513, offpeak: 0.0466}
+      export_credit: {peak: 0.0524, offpeak: 0.0}
+      bands: vector_tou_2026
+loss_categories:
+  VECA1:
+    - effective_from: 2026-04-01
+      schedule_version: v2026.1
+      factor: 1.0476
+bands:
+  # Peak applies Monday to Sunday, including public holidays.
+  vector_tou_2026:
+    default: offpeak
+    peak: [peak]
+    rules:
+      - band: peak
+        months: [6, 7, 8]
+        windows: ["07:00-11:00", "17:00-22:00"]
+      - band: peak
+        months: [5, 9]
+        windows: ["17:00-22:00"]

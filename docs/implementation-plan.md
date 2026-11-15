@@ -40,7 +40,7 @@ The engine is pure so the unit tests, the `price_at` service and, later, the bac
 - `import_price(spot, period_start, tariff, gst)` and `export_price(...)` implement the spec's formulas exactly:
   - `P_imp = ((S + m_imp)·L + N_imp + T + V)·G`
   - `P_exp = max(floor, S − m_exp + C_exp)·G`. The floor is applied ex-GST, and there is none by default.
-  - A missing component counts as 0.
+  - If a network, loss or retailer version doesn't cover the period, they raise `NoRatesError` and the sensors are unavailable. A missing component never counts as 0, which would give a too-low price.
 - `daily_charge(at, tariff, gst)`.
 - `to_nzd_per_kwh(value, unit)` handles c/kWh, NZD/kWh and $/MWh.
 - `Tariff` aggregates the network, loss and retailer version lists.
@@ -78,7 +78,7 @@ The engine is pure so the unit tests, the `price_at` service and, later, the bac
 The effective tariff is the bundled versions merged with the overrides. Use the same `version_at` lookup; an override version replaces fields from its date onwards.
 
 `config_flow.py` replaces the name-only scaffold. It keeps the `probatio` schema style the template uses.
-1. `user`: name, plus EntitySelector(domain=sensor, integration=`electricityinfo`) for the settled, live and forecast entities. Validate the settled entity's unit. unique_id = settled entity id.
+1. `user`: name, plus EntitySelector(domain=sensor, integration=`electricityinfo`) for the settled, live and forecast entities. Validate the settled entity's unit. Sources are stored by entity registry id so they follow renames (entity id if unregistered); unique_id = the settled source's stored id.
 2. `network`: distributor select, then price category and loss category selects built from the bundled data, plus a `custom` option for a manual-entry step.
 3. `retailer`: plan name, import margin, export margin, transmission, metering daily, retailer daily, levy and export floor. Entered in c/kWh and $/day for usability, stored in NZD.
 4. `gst`: incl (default) or ex.
