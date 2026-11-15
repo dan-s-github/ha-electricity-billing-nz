@@ -1,0 +1,14 @@
+{
+  "domain": "electricity_billing_nz",
+  "name": "Electricity Billing NZ",
+  "codeowners": [
+    "@dan-s-github"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/dan-s-github/ha-electricity-billing-nz",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/dan-s-github/ha-electricity-billing-nz/issues",
+  "requirements": ["holidays"],
+  "version": "0.1.0"
+}
