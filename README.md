@@ -32,7 +32,7 @@ price is built from:
 | Retailer margin (flat c/kWh) | Retailer | import (+) and export (−) |
 | Distribution, time of use | Lines company (price category) | import |
 | Export credit, time of use | Lines company (price category) | export |
-| Transmission | Lines company | import |
+| Transmission (per kWh) | Retailer (recovers the lines company's monthly grid charge) | import |
 | Electricity Authority levy | Retailer | import |
 | Daily charges (network, metering, retailer) | Lines company / retailer | per day |
 | GST | — | everything, applied last |
@@ -58,7 +58,7 @@ off-peak) that period *t* falls in, using the lines company's peak windows.
 - **Config flow**: choose the ha-electricityinfo-nz price entities (settled,
   live, day-ahead forecast), a lines company with its price category and loss
   category (the codes on your ICP's Electricity Authority registry record), and
-  enter your retailer plan (margins, daily charges, levy).
+  enter your retailer plan (margins, transmission, daily charges, levy).
 - **Bundled network rates**: one YAML file per lines company, versioned by
   effective date, starting with Vector. More networks can be added by PR.
 - **Rate versions**: enter a new schedule before it takes effect; past periods
