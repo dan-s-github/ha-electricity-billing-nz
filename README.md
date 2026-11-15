@@ -1,6 +1,6 @@
 # Electricity Billing NZ
 
-[![HACS][hacsbadge]][hacs]
+[![Marketplace][marketplacebadge]][marketplace]
 [![Home Assistant][ha-shield]][ha]
 [![Python Version][python-shield]][python]
 [![License][license-shield]](LICENSE)
@@ -81,12 +81,21 @@ off-peak) that period *t* falls in, using the lines company's peak windows.
 
 Once there is a first release:
 
-### HACS
+### Marketplace (recommended)
 
-1. Add this repository as a custom repository in HACS (type: Integration).
-2. Install `Electricity Billing NZ`.
-3. Restart Home Assistant.
+Home Assistant 2026.11 or newer:
+
+[![Open your Home Assistant instance and open this repository in the Marketplace.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dan-s-github&repository=ha-electricity-billing-nz&category=Integration)
+
+Or by hand:
+
+1. Go to Settings -> Marketplace and select **Add from link**.
+2. Enter `dan-s-github/ha-electricity-billing-nz` and select **Add**.
+3. Open the repository's page, select **Install**, then restart Home Assistant.
 4. Add the integration from Settings -> Devices & Services.
+
+On Home Assistant 2026.10 or older, add it as a custom repository in HACS
+instead.
 
 ### Manual
 
@@ -124,8 +133,8 @@ uv run --group dev pytest
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the release process and CI.
 
-[hacs]: https://github.com/hacs/integration
-[hacsbadge]: https://img.shields.io/badge/HACS-Custom-orange.svg?style=flat&logo=homeassistant&logoColor=white
+[marketplace]: https://www.home-assistant.io/integrations/marketplace/
+[marketplacebadge]: https://img.shields.io/badge/Marketplace-Custom-orange.svg?style=flat&logo=homeassistant&logoColor=white
 [ha-shield]: https://img.shields.io/badge/Home%20Assistant-2026.9.0+-blue.svg?style=flat&logo=homeassistant&logoColor=white
 [ha]: https://www.home-assistant.io/
 [python-shield]: https://img.shields.io/badge/python-3.14+-blue.svg?style=flat&logo=python&logoColor=white
