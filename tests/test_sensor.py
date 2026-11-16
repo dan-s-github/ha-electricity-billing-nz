@@ -486,9 +486,10 @@ async def test_before_rate_data(
     hass: HomeAssistant, config_entry: MockConfigEntry, freezer: FrozenDateTimeFactory
 ) -> None:
     """Before the bundled data starts there's no price, not a too-low one."""
-    freezer.move_to(nz("2026-03-31 22:10"))
-    set_settled(hass, 16.0, nz("2026-03-31 21:30"))
-    set_forecast(hass, nz("2026-03-31 22:00"), [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    # Vector's bundled data starts on 2025-04-01.
+    freezer.move_to(nz("2025-03-31 22:10"))
+    set_settled(hass, 16.0, nz("2025-03-31 21:30"))
+    set_forecast(hass, nz("2025-03-31 22:00"), [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
     await _setup(hass, config_entry)
 
     assert hass.states.get(IMPORT).state == STATE_UNAVAILABLE
@@ -497,27 +498,30 @@ async def test_before_rate_data(
     assert hass.states.get("sensor.home_tou_band").state == STATE_UNAVAILABLE
     assert hass.states.get("binary_sensor.home_peak").state == STATE_UNAVAILABLE
     assert hass.states.get("sensor.home_next_band_change").state == STATE_UNAVAILABLE
-    # Only periods from 2026-04-01 are priced; none of them is "now", but
+    # Only periods from 2025-04-01 are priced; none of them is "now", but
     # the list is still readable.
     forecast = "sensor.home_import_price_forecast"
     assert hass.states.get(forecast).state == "unknown"
     assert [
         r["period_start"] for r in hass.states.get(forecast).attributes["forecast"]
-    ] == ["2026-04-01T00:00:00+13:00", "2026-04-01T00:30:00+13:00"]
+    ] == ["2025-04-01T00:00:00+13:00", "2025-04-01T00:30:00+13:00"]
 
     # 23:30 is listed but can't be priced: 00:00 mustn't stand in for it.
-    freezer.move_to(nz("2026-03-31 23:40"))
+    freezer.move_to(nz("2025-03-31 23:40"))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert hass.states.get(forecast).state == "unknown"
 
-    freezer.move_to(nz("2026-04-01 00:00"))
+    freezer.move_to(nz("2025-04-01 00:00"))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
-    assert _price(hass, "sensor.home_daily_charge") == pytest.approx(1.61)
+    # Vector 2025: $0.75/day, off-peak 0.0444, VECA1 1.0533.
+    assert _price(hass, "sensor.home_daily_charge") == pytest.approx(
+        (0.75 + 0.35 + 0.15) * 1.15
+    )
     assert float(
         hass.states.get("sensor.home_import_price_forecast").state
-    ) == pytest.approx(template_import(0.05, peak=False), abs=1e-6)
+    ) == pytest.approx(template_import(0.05, network=0.0444, loss=1.0533), abs=1e-6)
 
 
 async def test_forecast_current_row(

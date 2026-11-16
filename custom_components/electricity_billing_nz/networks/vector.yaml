@@ -4,9 +4,16 @@
 distributor: vector
 name: Vector
 sources:
+  v2025.1: https://media.vector.co.nz/production/documents/electricitypricescheduleseffectivefrom1april2025.pdf
   v2026.1: https://media.vector.co.nz/production/documents/electricitypricescheduleseffectivefrom1april2026.pdf
 categories:
   ARHLC:
+    # 2025 has no injection (export) credit.
+    - effective_from: 2025-04-01
+      schedule_version: v2025.1
+      daily: 0.7500
+      import: {peak: 0.1575, offpeak: 0.0444}
+      bands: vector_tou_2025
     - effective_from: 2026-04-01
       schedule_version: v2026.1
       daily: 0.9000
@@ -14,6 +21,11 @@ categories:
       export_credit: {peak: 0.0524, offpeak: 0.0}
       bands: vector_tou_2026
   ARHLU:
+    - effective_from: 2025-04-01
+      schedule_version: v2025.1
+      daily: 0.7500
+      import: {peak: 0.1585, offpeak: 0.0454}
+      bands: vector_tou_2025
     - effective_from: 2026-04-01
       schedule_version: v2026.1
       daily: 0.9000
@@ -22,10 +34,25 @@ categories:
       bands: vector_tou_2026
 loss_categories:
   VECA1:
+    - effective_from: 2025-04-01
+      schedule_version: v2025.1
+      factor: 1.0533
     - effective_from: 2026-04-01
       schedule_version: v2026.1
       factor: 1.0476
 bands:
+  # Peak applies Monday to Friday, including public holidays; weekends are
+  # off-peak. Vector's "summer peak" (Oct-Mar, same hours) costs exactly the
+  # off-peak rate, so it is off-peak here: same prices, and the peak sensor
+  # only flags periods that cost more.
+  vector_tou_2025:
+    default: offpeak
+    peak: [peak]
+    rules:
+      - band: peak
+        months: [4, 5, 6, 7, 8, 9]
+        weekdays: [0, 1, 2, 3, 4]
+        windows: ["07:00-11:00", "17:00-21:00"]
   # Peak applies Monday to Sunday, including public holidays.
   vector_tou_2026:
     default: offpeak

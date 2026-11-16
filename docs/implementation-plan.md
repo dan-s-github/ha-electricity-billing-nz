@@ -47,7 +47,7 @@ The engine is pure so the unit tests, the `price_at` service and, later, the bac
 
 ## Step 2: bundled network data
 
-- `custom_components/electricity_billing_nz/networks/vector.yaml`, transcribed from Vector's [Pricing Schedule and Policy v2026.1](https://media.vector.co.nz/production/documents/electricitypricescheduleseffectivefrom1april2026.pdf) (effective 1 April 2026, all prices ex GST, $/kWh and $/day):
+- `custom_components/electricity_billing_nz/networks/vector.yaml`, transcribed from Vector's [Pricing Schedule and Policy v2026.1](https://media.vector.co.nz/production/documents/electricitypricescheduleseffectivefrom1april2026.pdf) (effective 1 April 2026) and [v2025.1](https://media.vector.co.nz/production/documents/electricitypricescheduleseffectivefrom1april2025.pdf) (effective 1 April 2025). All prices ex GST, $/kWh and $/day. The 2026 version:
 
   | Category | Daily (FIXD) | Off-peak (OFPK) | Peak (PEAK) | Injection off-peak (IJOP) | Injection peak (IJPK) |
   | --- | --- | --- | --- | --- | --- |
@@ -55,10 +55,14 @@ The engine is pure so the unit tests, the `price_at` service and, later, the bac
   | ARHLU | 0.9000 | 0.0466 | 0.1513 | 0.0000 | (0.0524) |
 
   - Loss category VECA1 is 1.0476 (4.54%) with respect to the customer meter.
-  - Bands are `vector_tou_2026`, as in the spec. Peak applies Monday to Sunday including public holidays; the hours are only shown as a chart in the PDF.
-  - ARHLU is included so the user can switch; it costs 0.09 c/kWh more in both bands.
-  - Each version carries `source:` (the PDF URL) and `schedule_version: v2026.1`, so every number can be traced.
-  - Add a 2025-04-01 version with zero injection credit, so replays of earlier periods (the backtest) are correct. Injection prices were zero before 1 April 2026.
+  - From 2026-04-01 the bands are `vector_tou_2026`, as in the spec. Peak applies Monday to Sunday including public holidays; the hours are only shown as a chart in the PDF. The 2025 version uses `vector_tou_2025` (below).
+  - ARHLU is included so the user can switch; in 2026 it costs 0.09 c/kWh more in both bands (0.10 c in 2025).
+  - Each version carries `source:` (its PDF URL) and its `schedule_version` (v2025.1 or v2026.1), so every number can be traced.
+  - A 2025-04-01 version (v2025.1) lets replays of earlier periods (the backtest) price correctly. It differs from 2026 in more than the rates:
+    - Daily $0.75. ARHLC off-peak 0.0444 / winter peak 0.1575; ARHLU 0.0454 / 0.1585. VECA1 1.0533. Injection credit 0.
+    - Peak is Monday–Friday (including public holidays) 07:00–11:00 and 17:00–21:00, all year; weekends are off-peak.
+    - Vector prices peak by season: October–March "summer peak" costs exactly the off-peak rate, so `vector_tou_2025` treats it as off-peak (same prices, and the peak sensor only flags periods that cost more). Peak is April–September weekdays.
+  - Before 2025-04-01 there's no data, so prices raise `NoRatesError`.
 - **Spec correction: transmission is not network data.** Vector doesn't charge consumers transmission per kWh. It invoices retailers monthly per GXP share (ROS, Mount Roskill: $17.1256 per 1/1000% share). The 3.02 c/kWh on the bill is Ecotricity's own per-kWh recovery of that charge, so `transmission` moves to the retailer plan. Update the spec's component table and symbol table, which list it under the network price category.
 - `networks.py`: `async_load_networks(hass)` reads every `networks/*.yaml` via `hass.async_add_executor_job` + `yaml.safe_load` (PyYAML ships with HA). It validates and converts into the Step 1 dataclasses, and caches the result in `hass.data[DOMAIN]`. It also exposes `list_distributors()`, `categories(distributor)` and `loss_categories(distributor)`.
 

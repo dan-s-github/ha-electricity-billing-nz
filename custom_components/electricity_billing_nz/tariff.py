@@ -25,8 +25,8 @@ GST_RATE = 1.15
 MINUTES_PER_DAY = 24 * 60
 # The band treated as peak when a schedule doesn't list its peak bands.
 DEFAULT_PEAK_BAND = "peak"
-# Search horizon for the next band change. Vector has no peak Oct-Apr, so the
-# next change can be up to seven months away.
+# Search horizon for the next band change. Vector's 2026 schedule has no peak
+# Oct-Apr, so the next change can be up to seven months away.
 BAND_CHANGE_HORIZON_DAYS = 400
 
 

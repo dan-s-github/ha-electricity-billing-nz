@@ -22,10 +22,24 @@ def trading_period(start: datetime) -> int:
     return int((start - midnight).total_seconds() // 1800) + 1
 
 
-def template_import(spot: float, *, peak: bool) -> float:
-    """Port of the margin-aware electricity_import_price template."""
-    network = 0.1504 if peak else 0.0457
-    return ((spot + 0.0286) * (1 + 0.0476) + network + 0.0302 + 0.002) * 1.15
+def template_import(
+    spot: float,
+    *,
+    peak: bool | None = None,
+    network: float | None = None,
+    loss: float = 1.0476,
+) -> float:
+    """
+    Port of the margin-aware electricity_import_price template.
+
+    Give peak for Vector 2026 ARHLC, or network (and loss) for another year.
+    """
+    if (peak is None) == (network is None):
+        msg = "Give exactly one of peak or network"
+        raise TypeError(msg)
+    if network is None:
+        network = 0.1504 if peak else 0.0457
+    return ((spot + 0.0286) * loss + network + 0.0302 + 0.002) * 1.15
 
 
 def template_export(spot: float, *, peak: bool) -> float:

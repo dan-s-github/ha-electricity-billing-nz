@@ -107,7 +107,7 @@ async def test_price_at_before_rate_data(
             "price_at",
             {
                 "config_entry_id": loaded.entry_id,
-                "timestamp": "2026-03-15T17:00:00+13:00",
+                "timestamp": "2025-03-15T17:00:00+13:00",
                 "spot": 0.12,
             },
             blocking=True,
@@ -126,7 +126,11 @@ async def test_export_versions(hass: HomeAssistant, loaded: MockConfigEntry) -> 
         return_response=True,
     )
     document = yaml.safe_load(response["yaml"])
-    assert document["network"][0]["effective_from"] == "2026-04-01"
-    assert document["network"][0]["bands"] == "vector_tou_2026"
-    assert document["loss"][0]["factor"] == 1.0476
+    assert [v["effective_from"] for v in document["network"]] == [
+        "2025-04-01",
+        "2026-04-01",
+    ]
+    assert document["network"][0]["bands"] == "vector_tou_2025"
+    assert document["network"][-1]["bands"] == "vector_tou_2026"
+    assert [v["factor"] for v in document["loss"]] == [1.0533, 1.0476]
     assert document["retailer"][0]["import_margin"] == 0.0286

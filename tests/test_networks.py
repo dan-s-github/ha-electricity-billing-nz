@@ -38,16 +38,35 @@ def test_every_bundled_network_is_valid() -> None:
 def test_vector_2026_values() -> None:
     """Vector v2026.1 as transcribed from the schedule."""
     vector = NETWORKS["vector"]
-    arhlc = vector.categories["ARHLC"][-1]
+    arhlc = version_on(vector.categories["ARHLC"], date(2026, 4, 1))
     assert arhlc.effective_from == date(2026, 4, 1)
     assert arhlc.daily == 0.90
     assert arhlc.import_rates == {"peak": 0.1504, "offpeak": 0.0457}
     assert arhlc.export_credit == {"peak": 0.0524, "offpeak": 0.0}
-    assert vector.categories["ARHLU"][-1].import_rates == {
+    assert version_on(vector.categories["ARHLU"], date(2026, 4, 1)).import_rates == {
         "peak": 0.1513,
         "offpeak": 0.0466,
     }
-    assert vector.loss_categories["VECA1"][-1].factor == 1.0476
+    assert (
+        version_on(vector.loss_categories["VECA1"], date(2026, 4, 1)).factor == 1.0476
+    )
+
+
+def test_vector_2025_values() -> None:
+    """Vector v2025.1 as transcribed from the schedule."""
+    vector = NETWORKS["vector"]
+    arhlc = version_on(vector.categories["ARHLC"], date(2025, 4, 1))
+    assert arhlc.effective_from == date(2025, 4, 1)
+    assert arhlc.daily == 0.75
+    assert arhlc.import_rates == {"peak": 0.1575, "offpeak": 0.0444}
+    assert arhlc.export_credit == {}  # no injection credit in 2025
+    assert arhlc.bands.name == "vector_tou_2025"
+    on_2025 = date(2025, 4, 1)
+    assert (
+        version_on(vector.categories["ARHLU"], on_2025).import_rates["peak"] == 0.1585
+    )
+    assert version_on(vector.loss_categories["VECA1"], on_2025).factor == 1.0533
+    assert arhlc.source.endswith("effectivefrom1april2025.pdf")
 
 
 def _raw(**category: object) -> dict[str, object]:

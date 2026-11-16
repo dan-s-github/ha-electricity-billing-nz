@@ -251,7 +251,7 @@ async def test_network_override_before_bundled_data(
         result["flow_id"], {"effective_from": "2025-01-01", "import_peak": 15.0}
     )
     assert result["errors"] == {"effective_from": "before_network_data"}
-    assert result["description_placeholders"] == {"first": "2026-04-01"}
+    assert result["description_placeholders"] == {"first": "2025-04-01"}
 
 
 async def test_network_override_when_not_loaded(hass: HomeAssistant) -> None:

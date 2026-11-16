@@ -28,13 +28,18 @@ from custom_components.electricity_billing_nz.tariff import (
     resolve_band,
     to_nzd_per_kwh,
     trading_period_start,
+    version_on,
 )
 
 from .helpers import template_export, template_import
 
 VECTOR = load_networks()["vector"]
 ARHLC = VECTOR.categories["ARHLC"]
-BANDS = ARHLC[0].bands
+# Versions by date, so adding a later year doesn't move them.
+ARHLC_2025 = version_on(ARHLC, date(2025, 4, 1))
+ARHLC_2026 = version_on(ARHLC, date(2026, 4, 1))
+BANDS = ARHLC_2026.bands
+BANDS_2025 = ARHLC_2025.bands
 PLAN = RetailerVersion(
     effective_from=date(2000, 1, 1),
     import_margin=0.0286,
@@ -260,7 +265,7 @@ SHOULDER = BandSchedule(
     default="offpeak",
 )
 NEXT_YEAR = replace(
-    ARHLC[-1],
+    ARHLC_2026,
     effective_from=date(2027, 4, 1),
     import_rates={"offpeak": 0.05, "shoulder": 0.08},
     export_credit={},
@@ -300,8 +305,15 @@ def test_next_band_change_at_version_start() -> None:
 
 def test_next_band_change_single_version() -> None:
     """With one version it matches the schedule's own next change."""
-    assert next_tariff_band_change(ARHLC, nz("2026-07-15 12:00")) == nz(
+    assert next_tariff_band_change((ARHLC_2026,), nz("2026-07-15 12:00")) == nz(
         "2026-07-15 17:00"
+    )
+
+
+def test_next_band_change_across_2025_and_2026() -> None:
+    """From Oct 2025 (no summer peak) the next change is in the 2026 schedule."""
+    assert next_tariff_band_change(ARHLC, nz("2025-10-01 12:00")) == nz(
+        "2026-05-01 17:00"
     )
 
 
@@ -362,3 +374,45 @@ def test_missing_rates_are_named(
         prices(tariff, 0.12, at)
     assert err.value.missing == missing
     assert rates_at(TARIFF, at) is not None
+
+
+@pytest.mark.parametrize(
+    ("at", "band"),
+    [
+        ("2025-07-15 07:00", "peak"),  # Tuesday, winter
+        ("2025-07-15 11:00", "offpeak"),
+        ("2025-07-15 17:00", "peak"),
+        ("2025-07-15 21:00", "offpeak"),  # 2025 peak ends at 21:00, not 22:00
+        ("2025-07-12 18:00", "offpeak"),  # Saturday: weekends are off-peak
+        ("2025-06-02 18:00", "peak"),  # King's Birthday: holidays are peak
+        ("2025-04-01 08:00", "peak"),  # April is winter in 2025
+        # Vector's summer peak (Oct-Mar) costs the off-peak rate.
+        ("2025-11-18 08:00", "offpeak"),
+        ("2026-03-31 18:00", "offpeak"),
+    ],
+)
+def test_resolve_band_2025(at: str, band: str) -> None:
+    """Bands follow Vector's 2025 windows: weekdays only, Apr-Sep."""
+    assert resolve_band(BANDS_2025, nz(at)) == band
+
+
+@pytest.mark.parametrize(
+    ("at", "network", "loss", "credit", "daily"),
+    [
+        ("2025-07-15 18:00", 0.1575, 1.0533, 0.0, 0.75),  # winter peak
+        ("2025-11-18 18:00", 0.0444, 1.0533, 0.0, 0.75),  # summer peak = off-peak
+        ("2026-03-31 23:30", 0.0444, 1.0533, 0.0, 0.75),  # last 2025 period
+        ("2026-04-01 00:00", 0.0457, 1.0476, 0.0, 0.90),  # 2026 from NZ midnight
+    ],
+)
+def test_vector_2025_prices(
+    *, at: str, network: float, loss: float, credit: float, daily: float
+) -> None:
+    """2025 prices use that year's rates, loss factor and zero export credit."""
+    imp, exp = prices(TARIFF, 0.12, nz(at))
+    assert imp.network == network
+    assert imp.loss_factor == loss
+    assert exp.export_credit == credit
+    assert imp.price == pytest.approx(template_import(0.12, network=network, loss=loss))
+    assert exp.price == pytest.approx((0.12 - 0.019 + credit) * 1.15)
+    assert daily_charge(TARIFF, nz(at)) == pytest.approx((daily + 0.35 + 0.15) * 1.15)
