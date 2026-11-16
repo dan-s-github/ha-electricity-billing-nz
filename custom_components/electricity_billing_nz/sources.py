@@ -41,13 +41,15 @@ def resolve_source(hass: HomeAssistant, stored: str) -> str:
 
 @callback
 def async_store_registry_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Switch sources stored by entity id to registry ids where possible."""
+    """
+    Switch sources stored by entity id to registry ids where possible.
+
+    Runs at every setup, not as a one-off migration: a source can gain a
+    registry entry after the config entry was made.
+    """
     data = dict(entry.data)
     for key in SOURCE_KEYS:
         if value := data.get(key):
             data[key] = source_id(hass, value)
-    unique_id = entry.unique_id
-    if unique_id and unique_id == entry.data.get(CONF_SETTLED_ENTITY):
-        unique_id = data[CONF_SETTLED_ENTITY]
-    if data != entry.data or unique_id != entry.unique_id:
-        hass.config_entries.async_update_entry(entry, data=data, unique_id=unique_id)
+    if data != entry.data:
+        hass.config_entries.async_update_entry(entry, data=data)

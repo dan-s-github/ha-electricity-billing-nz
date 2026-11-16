@@ -22,6 +22,7 @@ from custom_components.electricity_billing_nz.const import (
 )
 
 SETTLED = "sensor.ros0221_settled_price"
+ICP = "0000012345VE123"
 LIVE = "sensor.ros0221_live_price"
 FORECAST = "sensor.ros0221_day_ahead_forecast"
 
@@ -69,7 +70,6 @@ def config_entry(hass: HomeAssistant) -> MockConfigEntry:
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="Home",
-        unique_id=SETTLED,
         data=entry_data(),
         options={CONF_RETAILER_VERSIONS: [ECOTRICITY], CONF_NETWORK_OVERRIDES: []},
     )

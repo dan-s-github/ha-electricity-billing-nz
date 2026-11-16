@@ -9,8 +9,9 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.electricity_billing_nz.const import DOMAIN
+from custom_components.electricity_billing_nz.icp import normalise_icp
 
-from .conftest import ECOTRICITY, FORECAST, LIVE, SETTLED, entry_data
+from .conftest import ECOTRICITY, FORECAST, ICP, LIVE, SETTLED, entry_data
 
 RETAILER_FORM = {
     "plan_name": "ecoWHOLESALE",
@@ -67,7 +68,8 @@ async def test_full_flow(hass: HomeAssistant) -> None:
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "Home"
-    assert result["result"].unique_id == SETTLED
+    # No ICP entered: no unique id, so more entries can share the node.
+    assert result["result"].unique_id is None
     assert result["data"] == {
         "settled_entity": SETTLED,
         "live_entity": LIVE,
@@ -119,15 +121,54 @@ async def test_missing_source(hass: HomeAssistant) -> None:
     assert result["errors"] == {"settled_entity": "entity_not_found"}
 
 
-@pytest.mark.usefixtures("config_entry")
-async def test_already_configured(hass: HomeAssistant) -> None:
-    """One entry per settled price sensor."""
+async def test_icp_is_unique_id(hass: HomeAssistant) -> None:
+    """An ICP is normalised, stored and used as the unique id."""
     result = await _start(hass)
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"name": "Again", "settled_entity": SETTLED}
+        result["flow_id"],
+        {"name": "Home", "icp": " 0000012345ve123 ", "settled_entity": SETTLED},
     )
-    assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "already_configured"
+    assert result["step_id"] == "network"
+    flow = hass.config_entries.flow.async_get(result["flow_id"])
+    assert flow["context"]["unique_id"] == ICP
+
+
+async def test_already_configured(hass: HomeAssistant) -> None:
+    """One entry per ICP: a used one is a field error, so it can be cleared."""
+    MockConfigEntry(
+        domain=DOMAIN, title="Home", unique_id=ICP, data=entry_data(icp=ICP)
+    ).add_to_hass(hass)
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "Again", "icp": ICP, "settled_entity": SETTLED}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"icp": "icp_in_use"}
+
+
+@pytest.mark.usefixtures("config_entry")
+async def test_same_node_without_icp(hass: HomeAssistant) -> None:
+    """Without an ICP a second entry can use the same node, e.g. to compare plans."""
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "Compare", "settled_entity": SETTLED}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "network"
+
+
+@pytest.mark.parametrize(
+    "icp",
+    # The last uses full-width digits, which mustn't count as 0-9.
+    ["12345", "0000012345VE12", "000001234AVE123", "０００００12345VE123"],  # noqa: RUF001
+)
+async def test_invalid_icp(hass: HomeAssistant, icp: str) -> None:
+    """An ICP must be 10 digits, 2 letters and 3 check characters."""
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "Home", "icp": icp, "settled_entity": SETTLED}
+    )
+    assert result["errors"] == {"icp": "invalid_icp"}
 
 
 async def _options(hass: HomeAssistant, entry: MockConfigEntry, step: str) -> dict:
@@ -330,3 +371,89 @@ async def test_options_sources_scaffold_entry(hass: HomeAssistant) -> None:
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "unknown_network"
+
+
+async def test_set_and_clear_icp(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """The options set the ICP as unique id, and clearing it removes both."""
+    result = await _options(hass, config_entry, "connection")
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"icp": ICP}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert config_entry.unique_id == ICP
+    # Removed, as a finished config flow would, so no unique id is shared.
+    assert [e.title for e in hass.config_entries.async_entries(DOMAIN)] == ["Home"]
+
+    assert config_entry.data["icp"] == ICP
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "connection"}
+    )
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert config_entry.unique_id is None
+    assert "icp" not in config_entry.data
+
+
+async def test_icp_in_use(hass: HomeAssistant, config_entry: MockConfigEntry) -> None:
+    """Another entry's ICP can't be reused."""
+    MockConfigEntry(
+        domain=DOMAIN,
+        title="Flat",
+        unique_id=ICP,
+        minor_version=2,
+        data=entry_data(icp=ICP),
+    ).add_to_hass(hass)
+    result = await _options(hass, config_entry, "connection")
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"icp": ICP}
+    )
+    assert result["errors"] == {"icp": "icp_in_use"}
+
+
+async def test_icp_in_use_by_setup_in_progress(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """An ICP held by a setup still in progress can't be given to an entry."""
+    result = await _start(hass)
+    await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "Flat", "icp": ICP, "settled_entity": SETTLED}
+    )
+    result = await _options(hass, config_entry, "connection")
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"icp": ICP}
+    )
+    assert result["errors"] == {"icp": "icp_in_setup"}
+
+
+async def test_ignored_entry_does_not_hold_icp(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """An ignored entry doesn't block the ICP, as in the config flow."""
+    MockConfigEntry(
+        domain=DOMAIN,
+        title="Ignored",
+        unique_id=ICP,
+        source=config_entries.SOURCE_IGNORE,
+    ).add_to_hass(hass)
+    result = await _options(hass, config_entry, "connection")
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"icp": ICP}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert config_entry.unique_id == ICP
+
+
+@pytest.mark.parametrize("icp", ["0000012345ve123", "0000012345-VE 123"])
+def test_icp_normalised(icp: str) -> None:
+    """Case, spaces and dashes don't make a second spelling."""
+    assert normalise_icp(icp) == ICP
+
+
+def test_icp_non_ascii_rejected() -> None:
+    """A letter that upper-cases to ASCII ("ﬀ" -> "FF") isn't an ICP."""
+    with pytest.raises(ValueError, match="Not an ICP"):
+        normalise_icp("0000012345\ufb00123")

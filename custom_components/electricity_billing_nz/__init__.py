@@ -44,6 +44,20 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:  # noqa:
     return True
 
 
+async def async_migrate_entry(
+    hass: HomeAssistant, entry: ElectricityBillingNzConfigEntry
+) -> bool:
+    """Migrate an entry to the current config entry version."""
+    if entry.version > 1:
+        return False  # from a newer release; can't downgrade
+    if entry.minor_version < 2:  # noqa: PLR2004
+        # 1.1 used the settled sensor as unique id, but one node sensor can
+        # feed several entries. 1.1 entries have no ICP, which is the unique
+        # id now, so they have none.
+        hass.config_entries.async_update_entry(entry, unique_id=None, minor_version=2)
+    return True
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ElectricityBillingNzConfigEntry,

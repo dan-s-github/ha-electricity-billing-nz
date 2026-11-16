@@ -14,6 +14,10 @@ CONF_DISTRIBUTOR = "distributor"
 CONF_PRICE_CATEGORY = "price_category"
 CONF_LOSS_CATEGORY = "loss_category"
 CONF_GST_INCLUSIVE = "gst_inclusive"
+# Optional ICP identifier; when set it is the entry's unique id, so the same
+# connection can't be added twice. Entries without one (e.g. to compare
+# plans on the same node) have no unique id.
+CONF_ICP = "icp"
 
 # Config entry options
 CONF_RETAILER_VERSIONS = "retailer_versions"

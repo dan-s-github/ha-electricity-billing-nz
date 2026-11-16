@@ -1,14 +1,17 @@
 {
   "config": {
     "abort": {
-      "already_configured": "This settled price sensor is already set up.",
-      "already_in_progress": "A setup for this settled price sensor is already in progress."
+      "already_configured": "This ICP is already set up.",
+      "already_in_progress": "A setup for this ICP is already in progress."
     },
     "error": {
       "entity_not_found": "Entity not found.",
       "invalid_unit": "The sensor's unit must be c/kWh, NZD/kWh or $/MWh.",
       "name_required": "Enter a name.",
-      "duplicate_source": "Pick a different sensor for each source."
+      "duplicate_source": "Pick a different sensor for each source.",
+      "invalid_icp": "Enter the 15-character ICP number from your bill (10 digits, 2 letters, then 3 letters or digits), or leave it empty.",
+      "icp_in_use": "Another entry already uses this ICP number. Clear it to add another entry for the same node, e.g. to compare plans.",
+      "icp_in_setup": "A setup that hasn't finished is using this ICP number. Finish or close it first."
     },
     "step": {
       "user": {
@@ -18,13 +21,15 @@
           "name": "Name",
           "settled_entity": "Settled price",
           "live_entity": "Live price",
-          "forecast_entity": "Day-ahead forecast"
+          "forecast_entity": "Day-ahead forecast",
+          "icp": "ICP number"
         },
         "data_description": {
           "name": "Used for the device and entity names.",
           "settled_entity": "The ha-electricityinfo-nz settled price sensor. Bills use these prices.",
           "live_entity": "Optional. Used for the live price sensors.",
-          "forecast_entity": "Optional. Used for the forecast price sensors."
+          "forecast_entity": "Optional. Used for the forecast price sensors.",
+          "icp": "Optional. The connection's ICP number from your bill. With it, the same connection can't be added twice; leave it empty for an extra entry on the same node, e.g. to compare plans."
         }
       },
       "network": {
@@ -71,14 +76,18 @@
       "not_after_latest": "Must be after the latest retailer version.",
       "no_changes": "Enter at least one value to override.",
       "before_network_data": "Must be on or after {first}, when the bundled network data starts.",
-      "duplicate_source": "Pick a different sensor for each source."
+      "duplicate_source": "Pick a different sensor for each source.",
+      "invalid_icp": "Enter the 15-character ICP number from your bill (10 digits, 2 letters, then 3 letters or digits), or leave it empty.",
+      "icp_in_use": "Another entry already uses this ICP number.",
+      "icp_in_setup": "A setup that hasn't finished is using this ICP number. Finish or close it first."
     },
     "step": {
       "init": {
         "menu_options": {
           "add_retailer_version": "Add retailer rate version",
           "add_network_override": "Override network values",
-          "sources": "Change source entities"
+          "sources": "Change source entities",
+          "connection": "ICP number"
         }
       },
       "add_retailer_version": {
@@ -128,6 +137,13 @@
         "data_description": {
           "live_entity": "Optional. Used for the live price sensors.",
           "forecast_entity": "Optional. Used for the forecast price sensors."
+        }
+      },
+      "connection": {
+        "title": "ICP number",
+        "description": "Set the connection's ICP number so it can't be added twice, or clear it to allow extra entries on this node.",
+        "data": {
+          "icp": "ICP number"
         }
       }
     },

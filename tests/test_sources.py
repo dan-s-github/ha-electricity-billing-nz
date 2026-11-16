@@ -6,6 +6,7 @@ import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -31,22 +32,31 @@ def settled_registry_id(entity_registry: er.EntityRegistry) -> str:
 async def test_flow_stores_registry_id(
     hass: HomeAssistant, settled_registry_id: str
 ) -> None:
-    """The flow stores the registry id and uses it as the unique id."""
+    """The flow stores the settled source by registry id."""
     hass.states.async_set(SETTLED, "12.0", {"unit_of_measurement": "c/kWh"})
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"name": "Home", "settled_entity": SETTLED}
-    )
-    flow = hass.config_entries.flow.async_get(result["flow_id"])
-    assert flow["context"]["unique_id"] == settled_registry_id
+    for step in (
+        {"name": "Home", "settled_entity": SETTLED},
+        {"distributor": "vector"},
+        {"price_category": "ARHLC", "loss_category": "VECA1"},
+        {"gst_inclusive": True},
+    ):
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], step)
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["settled_entity"] == settled_registry_id
 
 
 async def test_entity_id_switched_to_registry_id(
     hass: HomeAssistant, settled_registry_id: str
 ) -> None:
-    """An entry storing the entity id is switched to the registry id at setup."""
+    """
+    An old entry is updated at setup.
+
+    The settled source switches to its registry id, and the old unique id
+    (the settled sensor) is dropped: one node can feed several entries.
+    """
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="Home",
@@ -59,7 +69,7 @@ async def test_entity_id_switched_to_registry_id(
     await hass.async_block_till_done()
 
     assert entry.data["settled_entity"] == settled_registry_id
-    assert entry.unique_id == settled_registry_id
+    assert entry.unique_id is None
     # Unregistered sources stay as entity ids.
     assert entry.data["live_entity"] == "sensor.ros0221_live_price"
 

@@ -34,6 +34,7 @@ from .const import (
     CONF_EXPORT_FLOOR,
     CONF_FORECAST_ENTITY,
     CONF_GST_INCLUSIVE,
+    CONF_ICP,
     CONF_LIVE_ENTITY,
     CONF_LOSS_CATEGORY,
     CONF_NETWORK_OVERRIDES,
@@ -46,6 +47,7 @@ from .const import (
     RETAILER_DAILY_FIELDS,
     RETAILER_PER_KWH_FIELDS,
 )
+from .icp import async_remove_ignored, async_validate_icp
 from .networks import (
     OVERRIDE_DAILY,
     OVERRIDE_EXPORT_CREDIT_PREFIX,
@@ -101,6 +103,7 @@ def _sources_schema(include_settled: bool) -> probatio.Schema:  # noqa: FBT001
     fields: dict[Any, Any] = {}
     if include_settled:
         fields[probatio.Required(CONF_NAME, default="Home")] = TextSelector()
+        fields[probatio.Optional(CONF_ICP)] = TextSelector()
         fields[probatio.Required(CONF_SETTLED_ENTITY)] = SENSOR_SELECTOR
     fields[probatio.Optional(CONF_LIVE_ENTITY)] = SENSOR_SELECTOR
     fields[probatio.Optional(CONF_FORECAST_ENTITY)] = SENSOR_SELECTOR
@@ -201,6 +204,8 @@ class ElectricityBillingNzConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for electricity_billing_nz."""
 
     VERSION = 1
+    # 1.2: the optional ICP, not the settled sensor, is the unique id.
+    MINOR_VERSION = 2
 
     def __init__(self) -> None:
         """Initialise the flow's collected answers."""
@@ -223,16 +228,25 @@ class ElectricityBillingNzConfigFlow(ConfigFlow, domain=DOMAIN):
             errors = _validate_sources(self, user_input)
             if not str(user_input.get(CONF_NAME, "")).strip():
                 errors[CONF_NAME] = "name_required"
+            # A field error, not an abort, so the user can clear the ICP and
+            # add a comparison entry without re-entering everything.
+            icp, icp_error = async_validate_icp(self.hass, user_input.get(CONF_ICP))
+            if icp_error:
+                errors[CONF_ICP] = icp_error
             if not errors:
-                sources = {
-                    k: source_id(self.hass, v)
-                    for k, v in user_input.items()
-                    if k in SOURCE_KEYS and v
-                }
-                await self.async_set_unique_id(sources[CONF_SETTLED_ENTITY])
-                self._abort_if_unique_id_configured()
+                if icp:
+                    # One entry per connection; without an ICP any number
+                    # of entries can share a node, e.g. to compare plans.
+                    await self.async_set_unique_id(icp)
+                    self._data[CONF_ICP] = icp
                 self._title = user_input[CONF_NAME].strip()
-                self._data.update(sources)
+                self._data.update(
+                    {
+                        k: source_id(self.hass, v)
+                        for k, v in user_input.items()
+                        if k in SOURCE_KEYS and v
+                    }
+                )
                 return await self.async_step_network()
 
         return self.async_show_form(
@@ -295,6 +309,10 @@ class ElectricityBillingNzConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Enter the retailer plan, which applies to all past periods too."""
         if user_input is not None:
+            if self.unique_id:
+                # Belt and braces: finishing a flow whose unique id an entry
+                # already has would make HA replace that entry.
+                self._abort_if_unique_id_configured()
             self._data[CONF_GST_INCLUSIVE] = user_input[CONF_GST_INCLUSIVE]
             return self.async_create_entry(
                 title=self._title,
@@ -323,7 +341,12 @@ class OptionsFlowHandler(OptionsFlowWithReload):
         """Show the menu."""
         return self.async_show_menu(
             step_id="init",
-            menu_options=["add_retailer_version", "add_network_override", "sources"],
+            menu_options=[
+                "add_retailer_version",
+                "add_network_override",
+                "sources",
+                "connection",
+            ],
         )
 
     def _latest_retailer(self) -> Mapping[str, Any]:
@@ -438,6 +461,44 @@ class OptionsFlowHandler(OptionsFlowWithReload):
             ),
             errors=errors,
             description_placeholders=placeholders,
+        )
+
+    async def async_step_connection(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Set, change or clear the entry's ICP number."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            icp, error = async_validate_icp(
+                self.hass, user_input.get(CONF_ICP), self.config_entry
+            )
+            if error:
+                errors[CONF_ICP] = error
+            else:
+                data = {
+                    k: v for k, v in self.config_entry.data.items() if k != CONF_ICP
+                } | ({CONF_ICP: icp} if icp else {})
+                if icp:
+                    # Two entries mustn't share a unique id, ignored ones too.
+                    await async_remove_ignored(self.hass, icp)
+                # Not used for pricing, so no reload is needed.
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, data=data, unique_id=icp
+                )
+                return self.async_create_entry(data=dict(self.config_entry.options))
+
+        return self.async_show_form(
+            step_id="connection",
+            data_schema=self.add_suggested_values_to_schema(
+                probatio.Schema({probatio.Optional(CONF_ICP): TextSelector()}),
+                user_input
+                or (
+                    {CONF_ICP: icp}
+                    if (icp := self.config_entry.data.get(CONF_ICP))
+                    else {}
+                ),
+            ),
+            errors=errors,
         )
 
     async def async_step_sources(
