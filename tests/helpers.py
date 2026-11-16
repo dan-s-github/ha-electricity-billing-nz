@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime
 
 from homeassistant.core import HomeAssistant
 
-from custom_components.electricity_billing_nz.tariff import NZ_TZ, nz_midnight
+from custom_components.electricity_billing_nz.tariff import (
+    NZ_TZ,
+    add_periods,
+    nz_midnight,
+)
 
 from .conftest import FORECAST, LIVE, SETTLED
 
@@ -19,7 +23,9 @@ def nz(text: str) -> datetime:
 def trading_period(start: datetime) -> int:
     """Return the NZ trading period number (1 at midnight) for a period start."""
     midnight = nz_midnight(start.astimezone(NZ_TZ).date())
-    return int((start - midnight).total_seconds() // 1800) + 1
+    # In UTC: within one zone, subtraction ignores a DST change in between.
+    elapsed = start.astimezone(UTC) - midnight.astimezone(UTC)
+    return int(elapsed.total_seconds() // 1800) + 1
 
 
 def template_import(
@@ -81,13 +87,14 @@ def set_live(hass: HomeAssistant, cents: float | str, period: datetime) -> None:
 
 def set_forecast(hass: HomeAssistant, start: datetime, cents: list[float]) -> None:
     """Set the forecast source: the first price is the current period."""
+    starts = [add_periods(start, i) for i in range(len(cents))]
     rows = [
         {
-            "period_start": (start + timedelta(minutes=30 * i)).isoformat(),
-            "trading_period": 35 + i,
+            "period_start": period.isoformat(),
+            "trading_period": trading_period(period),
             "price": price,
         }
-        for i, price in enumerate(cents)
+        for period, price in zip(starts, cents, strict=True)
     ]
     hass.states.async_set(
         FORECAST,

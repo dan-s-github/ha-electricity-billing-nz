@@ -195,6 +195,28 @@ def _source_period(state: State, periods_back: int) -> datetime:
     return add_periods(period_start(reported), -periods_back)
 
 
+def _row_period(
+    stamp: datetime, trading_period: int | None
+) -> tuple[datetime, int | None]:
+    """
+    Return the start of the period a forecast row is for, and its number.
+
+    The stamp is the period start (ha-electricityinfo-nz stamps starts). The
+    only correction is when ``trading_period`` is the period just before the
+    stamp's: then the stamp is that period's end. A trading period that
+    disagrees otherwise is dropped, so a misnumbered source can't move rows.
+    """
+    stamped = period_start(stamp)
+    if trading_period is not None:
+        start = trading_period_start(trading_period, stamp)
+        if start is not None and start.astimezone(UTC) in (
+            stamped.astimezone(UTC),
+            add_periods(stamped, -1).astimezone(UTC),
+        ):
+            return start, trading_period
+    return stamped, None
+
+
 def _rows(value: Any) -> Sequence[Mapping[str, Any]]:
     """Return the dict rows of a forecast or history attribute."""
     if not isinstance(value, list):
@@ -451,7 +473,9 @@ class BillingEngine:
             stamp = parse_time(raw.get("period_start"))
             if stamp is None:
                 continue
-            start = period_start(stamp)
+            start, trading_period = _row_period(
+                stamp, _trading_period(raw.get("trading_period"))
+            )
             key = start.astimezone(UTC)
             # In UTC: within one zone Python ignores the DST fold, so a
             # first-pass repeated-hour period wouldn't count as past.
@@ -467,9 +491,7 @@ class BillingEngine:
                 spot = to_nzd_per_kwh(float(price), unit)
             except TypeError, ValueError:
                 continue
-            pair = self._price_or_none(
-                spot, start, _trading_period(raw.get("trading_period"))
-            )
+            pair = self._price_or_none(spot, start, trading_period)
             if pair is None:
                 unpriced += 1
                 continue

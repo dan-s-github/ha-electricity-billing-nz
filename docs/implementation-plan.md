@@ -105,7 +105,7 @@ Update `strings.json` and `translations/en.json` together; `tests/test_translati
 - Computes from source state:
   - **Settled**: spot from the settled state. Band and versions come from the **settled period's start**, taken from the `timestamp` attribute; check that it is the period start, and if not, derive it from `trading_period` and the date. This is spec rule 1, and it also fixes the template bug that priced the settled N−1 value using now's peak flag.
   - **Live**: spot from the live state, priced for the current period start (now floored to :00/:30 NZ).
-  - **Forecast**: each `forecast[]` row priced at its `period_start` → list `{period_start, trading_period, price, tou_band}`. State = the current period, otherwise the next one.
+  - **Forecast**: each `forecast[]` row priced at its `period_start`, or the period before when its `trading_period` says the stamp is the period end → list `{period_start, trading_period, price, tou_band}`. State = the current period, otherwise the next one.
 - Sets the price to unavailable when the spot is unavailable or non-numeric. There is no carry-forward.
 
 ## Step 5: platforms

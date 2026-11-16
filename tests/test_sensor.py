@@ -584,6 +584,93 @@ async def test_forecast_current_row(
     assert hass.states.get(forecast).state == "unknown"
 
 
+async def test_forecast_rows_stamped_with_period_end(
+    hass: HomeAssistant, config_entry: MockConfigEntry, freezer: FrozenDateTimeFactory
+) -> None:
+    """With a trading period, a row stamped with its period's end is still its own."""
+    forecast = "sensor.home_import_price_forecast"
+    freezer.move_to(nz("2026-11-16 12:10"))
+    rows = [
+        # Periods 25 (12:00) and 26 (12:30), stamped 12:30 and 13:00.
+        {"period_start": "2026-11-16T12:30:00+13:00", "trading_period": 25, "price": 4},
+        {"period_start": "2026-11-16T13:00:00+13:00", "trading_period": 26, "price": 5},
+    ]
+    hass.states.async_set(
+        FORECAST,
+        "4",
+        {"unit_of_measurement": "c/kWh", "history": rows[:1], "forecast": rows[1:]},
+    )
+    await _setup(hass, config_entry)
+
+    assert float(hass.states.get(forecast).state) == pytest.approx(
+        template_import(0.04, peak=False), abs=1e-6
+    )
+    assert [
+        (r["period_start"], r["trading_period"])
+        for r in hass.states.get(forecast).attributes["forecast"]
+    ] == [("2026-11-16T12:00:00+13:00", 25), ("2026-11-16T12:30:00+13:00", 26)]
+
+
+async def test_forecast_trading_period_only_corrects_period_end(
+    hass: HomeAssistant, config_entry: MockConfigEntry, freezer: FrozenDateTimeFactory
+) -> None:
+    """A trading period that disagrees with the stamp otherwise is dropped."""
+    freezer.move_to(nz("2026-11-16 12:10"))
+    rows = [
+        {"period_start": "2026-11-16T12:00:00+13:00", "trading_period": 25, "price": 4},
+        # Period 30 is 14:30: not this stamp's period or the one before it.
+        {"period_start": "2026-11-16T12:30:00+13:00", "trading_period": 30, "price": 5},
+    ]
+    hass.states.async_set(
+        FORECAST,
+        "4",
+        {"unit_of_measurement": "c/kWh", "history": rows[:1], "forecast": rows[1:]},
+    )
+    await _setup(hass, config_entry)
+
+    assert [
+        (r["period_start"], r["trading_period"])
+        for r in hass.states.get("sensor.home_import_price_forecast").attributes[
+            "forecast"
+        ]
+    ] == [("2026-11-16T12:00:00+13:00", 25), ("2026-11-16T12:30:00+13:00", None)]
+
+
+async def test_forecast_period_end_stamps_as_dst_ends(
+    hass: HomeAssistant, config_entry: MockConfigEntry, freezer: FrozenDateTimeFactory
+) -> None:
+    """Period-end stamps with trading periods land right in the repeated hour."""
+    # 2027-04-04: 02:00-03:00 repeats; periods 5-6 are NZDT, 7-8 NZST.
+    freezer.move_to(datetime(2027, 4, 3, 12, 40, tzinfo=UTC))  # 01:40 NZDT
+    ends = [
+        "2027-04-04T02:00:00+13:00",
+        "2027-04-04T02:30:00+13:00",
+        "2027-04-04T02:00:00+12:00",
+        "2027-04-04T02:30:00+12:00",
+        "2027-04-04T03:00:00+12:00",
+    ]
+    rows = [
+        {"period_start": end, "trading_period": 4 + i, "price": float(i)}
+        for i, end in enumerate(ends)
+    ]
+    hass.states.async_set(
+        FORECAST, "0", {"unit_of_measurement": "c/kWh", "forecast": rows}
+    )
+    await _setup(hass, config_entry)
+
+    forecast = hass.states.get("sensor.home_import_price_forecast")
+    assert [
+        (r["period_start"], r["trading_period"])
+        for r in forecast.attributes["forecast"]
+    ] == [
+        ("2027-04-04T01:30:00+13:00", 4),
+        ("2027-04-04T02:00:00+13:00", 5),
+        ("2027-04-04T02:30:00+13:00", 6),
+        ("2027-04-04T02:00:00+12:00", 7),
+        ("2027-04-04T02:30:00+12:00", 8),
+    ]
+
+
 async def test_forecast_drops_first_pass_of_repeated_hour(
     hass: HomeAssistant, config_entry: MockConfigEntry, freezer: FrozenDateTimeFactory
 ) -> None:
