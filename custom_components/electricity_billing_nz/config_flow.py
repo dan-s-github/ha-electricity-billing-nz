@@ -512,7 +512,7 @@ class OptionsFlowHandler(OptionsFlowWithReload):
             if k in SOURCE_KEYS and v
         }
         if CONF_SETTLED_ENTITY not in current:
-            return self.async_abort(reason="unknown_network")
+            return self.async_abort(reason="settled_not_found")
         errors: dict[str, str] = {}
         if user_input is not None:
             errors = _validate_sources(self, user_input, current[CONF_SETTLED_ENTITY])

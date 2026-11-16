@@ -370,7 +370,7 @@ async def test_options_sources_scaffold_entry(hass: HomeAssistant) -> None:
         result["flow_id"], {"next_step_id": "sources"}
     )
     assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "unknown_network"
+    assert result["reason"] == "settled_not_found"
 
 
 async def test_set_and_clear_icp(

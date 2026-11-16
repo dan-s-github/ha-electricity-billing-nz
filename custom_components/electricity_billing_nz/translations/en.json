@@ -64,7 +64,8 @@
           "import_margin": "Added to the spot price on import, before losses.",
           "export_margin": "Taken off the spot price on export.",
           "transmission": "The retailer's per-kWh transmission line on the bill.",
-          "export_floor": "Leave empty if export can go negative with spot."
+          "export_floor": "Leave empty if export can go negative with spot.",
+          "gst_inclusive": "Add GST to the prices and daily charge this integration reports. The values above stay ex GST. This can only be set here, not changed later."
         }
       }
     }
@@ -148,7 +149,8 @@
       }
     },
     "abort": {
-      "unknown_network": "The configured lines company or category is not in the bundled network data."
+      "unknown_network": "The configured lines company or category is not in the bundled network data.",
+      "settled_not_found": "The settled price sensor no longer exists. Remove the entry and add it again with the new sensor."
     }
   },
   "entity": {
