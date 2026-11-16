@@ -201,6 +201,32 @@ async def test_restore_until_source_reports(
     )
 
 
+async def test_no_restore_after_gst_change(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A price saved with the other GST setting isn't restored."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Home",
+        data=entry_data(gst_inclusive=False),
+        options={"retailer_versions": [ECOTRICITY], "network_overrides": []},
+    )
+    entry.add_to_hass(hass)
+    freezer.move_to(nz("2026-11-16 12:10"))
+    hass.set_state(CoreState.starting)
+    mock_restore_cache_with_extra_data(
+        hass,
+        [
+            (
+                State(IMPORT, "0.3", {"gst": 1.15}),
+                {"native_value": 0.3, "native_unit_of_measurement": "NZD/kWh"},
+            )
+        ],
+    )
+    await _setup(hass, entry)
+    assert hass.states.get(IMPORT).state == STATE_UNAVAILABLE
+
+
 async def test_restore_survives_startup_placeholder(
     hass: HomeAssistant, config_entry: MockConfigEntry, freezer: FrozenDateTimeFactory
 ) -> None:

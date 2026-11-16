@@ -305,6 +305,28 @@ async def test_change_sources(
     assert hass.states.get("sensor.home_import_price_forecast") is not None
 
 
+@pytest.mark.parametrize("gst_inclusive", [True, False])
+async def test_options_gst(
+    hass: HomeAssistant, config_entry: MockConfigEntry, *, gst_inclusive: bool
+) -> None:
+    """The GST choice can be changed; the entry reloads only when it changes."""
+    assert config_entry.data["gst_inclusive"] is True
+    result = await _options(hass, config_entry, "gst")
+    engine = config_entry.runtime_data.engine
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"gst_inclusive": gst_inclusive}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert config_entry.data["gst_inclusive"] is gst_inclusive
+    assert config_entry.runtime_data.engine.tariff.gst == (
+        1.15 if gst_inclusive else 1.0
+    )
+    reloaded = config_entry.runtime_data.engine is not engine
+    assert reloaded is not gst_inclusive
+
+
 async def test_name_required(hass: HomeAssistant) -> None:
     """A blank name is rejected."""
     result = await _start(hass)

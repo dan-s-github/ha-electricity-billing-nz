@@ -102,16 +102,18 @@ class PriceSensor(BillingEntity, RestoreSensor):
     async def async_added_to_hass(self) -> None:
         """Restore the last price until the source reports."""
         await super().async_added_to_hass()
-        if (data := await self.async_get_last_sensor_data()) is not None and isinstance(
-            data.native_value, (int, float)
-        ):
-            self._restored_value = float(data.native_value)
-            if (state := await self.async_get_last_state()) is not None:
-                self._restored_attributes = {
-                    k: v
-                    for k, v in state.attributes.items()
-                    if k in RESTORED_ATTRIBUTES
-                }
+        data = await self.async_get_last_sensor_data()
+        if data is None or not isinstance(data.native_value, (int, float)):
+            return
+        state = await self.async_get_last_state()
+        attributes = state.attributes if state is not None else {}
+        # A price from before the GST option changed is on the wrong basis.
+        if attributes.get("gst", self.engine.tariff.gst) != self.engine.tariff.gst:
+            return
+        self._restored_value = float(data.native_value)
+        self._restored_attributes = {
+            k: v for k, v in attributes.items() if k in RESTORED_ATTRIBUTES
+        }
 
     @property
     def _pair(self) -> PricePair | None:

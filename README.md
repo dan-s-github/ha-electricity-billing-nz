@@ -129,7 +129,7 @@ for the wholesale price.
 5. **Retailer plan**: enter the per-kWh values in c/kWh and the daily charges
    in NZD/day, all excluding GST. **Prices include GST** (on by default) adds
    GST to the prices and daily charge the integration reports; turn it off
-   for ex-GST prices. It can't be changed later without re-adding the entry.
+   for ex-GST prices. You can change it later under **GST** in the options.
 
 When a rate changes later, open the entry's **Configure** menu:
 
@@ -140,6 +140,9 @@ When a rate changes later, open the entry's **Configure** menu:
 - **Change source entities**: the live and forecast sensors. The settled
   sensor is fixed; to change it, re-add the entry.
 - **ICP number**.
+- **GST**: whether the reported prices include GST. Changing it moves the
+  price history by 15% from then on, and `price_at` uses the current setting
+  for every period, past ones included.
 
 To check a price, call `electricity_billing_nz.price_at` from Developer Tools ->
 Actions:

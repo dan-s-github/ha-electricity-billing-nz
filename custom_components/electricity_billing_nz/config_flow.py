@@ -346,6 +346,7 @@ class OptionsFlowHandler(OptionsFlowWithReload):
                 "add_network_override",
                 "sources",
                 "connection",
+                "gst",
             ],
         )
 
@@ -501,6 +502,39 @@ class OptionsFlowHandler(OptionsFlowWithReload):
             errors=errors,
         )
 
+    def _update_data_and_reload(self, data: dict[str, Any]) -> ConfigFlowResult:
+        """Store new entry data, which the engine reads at setup, and reload."""
+        self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+        # Options are unchanged, so the automatic reload won't fire.
+        self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
+        return self.async_create_entry(data=dict(self.config_entry.options))
+
+    async def async_step_gst(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose whether the reported prices include GST."""
+        current = self.config_entry.data.get(CONF_GST_INCLUSIVE, True)
+        if user_input is not None:
+            if user_input[CONF_GST_INCLUSIVE] == current:
+                return self.async_create_entry(data=dict(self.config_entry.options))
+            return self._update_data_and_reload(
+                {
+                    **self.config_entry.data,
+                    CONF_GST_INCLUSIVE: user_input[CONF_GST_INCLUSIVE],
+                }
+            )
+
+        return self.async_show_form(
+            step_id="gst",
+            data_schema=probatio.Schema(
+                {
+                    probatio.Required(
+                        CONF_GST_INCLUSIVE, default=current
+                    ): BooleanSelector()
+                }
+            ),
+        )
+
     async def async_step_sources(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -525,14 +559,7 @@ class OptionsFlowHandler(OptionsFlowWithReload):
                 data.update(
                     {k: source_id(self.hass, v) for k, v in user_input.items() if v}
                 )
-                self.hass.config_entries.async_update_entry(
-                    self.config_entry, data=data
-                )
-                # Options are unchanged, so the automatic reload won't fire.
-                self.hass.config_entries.async_schedule_reload(
-                    self.config_entry.entry_id
-                )
-                return self.async_create_entry(data=dict(self.config_entry.options))
+                return self._update_data_and_reload(data)
 
         return self.async_show_form(
             step_id="sources",

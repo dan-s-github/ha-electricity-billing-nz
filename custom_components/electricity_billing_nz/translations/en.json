@@ -65,7 +65,7 @@
           "export_margin": "Taken off the spot price on export.",
           "transmission": "The retailer's per-kWh transmission line on the bill.",
           "export_floor": "Leave empty if export can go negative with spot.",
-          "gst_inclusive": "Add GST to the prices and daily charge this integration reports. The values above stay ex GST. This can only be set here, not changed later."
+          "gst_inclusive": "Add GST to the prices and daily charge this integration reports. The values above stay ex GST."
         }
       }
     }
@@ -88,7 +88,8 @@
           "add_retailer_version": "Add retailer rate version",
           "add_network_override": "Override network values",
           "sources": "Change source entities",
-          "connection": "ICP number"
+          "connection": "ICP number",
+          "gst": "GST"
         }
       },
       "add_retailer_version": {
@@ -146,6 +147,16 @@
         "data": {
           "icp": "ICP number"
         }
+      },
+      "gst": {
+        "title": "GST",
+        "data": {
+          "gst_inclusive": "Prices include GST"
+        },
+        "data_description": {
+          "gst_inclusive": "Add GST to the prices and daily charge this integration reports. Rates you enter stay ex GST."
+        },
+        "description": "Changing this moves the price sensors' history by 15% from now on. The price_at action uses the current setting for past periods too."
       }
     },
     "abort": {
