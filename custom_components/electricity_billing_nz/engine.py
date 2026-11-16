@@ -388,6 +388,7 @@ class BillingEngine:
         today = now.astimezone(NZ_TZ).date()
         if (
             self._band_change_checked is None
+            # next_band_change is in UTC, so this compares absolute times.
             or (self.next_band_change is not None and now >= self.next_band_change)
             or (self.next_band_change is None and today != self._band_change_checked)
         ):

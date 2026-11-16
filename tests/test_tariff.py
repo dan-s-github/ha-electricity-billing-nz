@@ -180,6 +180,58 @@ def test_next_band_change(after: str, expected: str) -> None:
     assert next_band_change(BANDS, nz(after)) == nz(expected)
 
 
+# A band whose window sits in the hour repeated when DST ends (2026-04-05).
+REPEATED_HOUR = BandSchedule(
+    name="repeated_hour",
+    rules=(
+        BandRule(band="peak", months=frozenset({4}), windows=((2 * 60, 2 * 60 + 30),)),
+    ),
+    default="offpeak",
+)
+
+
+@pytest.mark.parametrize(
+    ("after", "expected"),
+    [
+        # First pass of 02:00-03:00 (NZDT): ends at 02:30 NZDT.
+        ("2026-04-04T13:15:00+00:00", "2026-04-04T13:30:00+00:00"),
+        # Off-peak in the first pass's 02:45: next is 02:00 again (NZST).
+        ("2026-04-04T13:45:00+00:00", "2026-04-04T14:00:00+00:00"),
+        # Second pass (NZST): ends at 02:30 NZST, not the earlier NZDT one.
+        ("2026-04-04T14:15:00+00:00", "2026-04-04T14:30:00+00:00"),
+    ],
+)
+def test_next_band_change_in_repeated_hour(after: str, expected: str) -> None:
+    """Edges in the repeated hour are found on each pass, in absolute time."""
+    change = next_band_change(REPEATED_HOUR, datetime.fromisoformat(after))
+    assert change is not None
+    # In UTC: across zones, == is always False for times in the repeated hour.
+    assert change.astimezone(UTC) == datetime.fromisoformat(expected)
+
+
+def test_next_band_change_until() -> None:
+    """Only changes before until count."""
+    after = nz("2026-11-15 12:00")
+    assert next_band_change(BANDS, after, nz("2027-05-01 17:00")) is None
+    assert next_band_change(BANDS, after, nz("2027-05-01 17:30")) == nz(
+        "2027-05-01 17:00"
+    )
+
+
+def test_next_band_change_skipped_hour() -> None:
+    """A window starting in the hour skipped at DST start begins at the jump."""
+    skipped = BandSchedule(
+        name="skipped_hour",
+        rules=(
+            BandRule(band="peak", months=frozenset({9}), windows=((2 * 60, 4 * 60),)),
+        ),
+        default="offpeak",
+    )
+    # 2026-09-27: clocks go from 02:00 NZST to 03:00 NZDT (14:00 UTC).
+    change = next_band_change(skipped, nz("2026-09-27 01:00"))
+    assert change == datetime.fromisoformat("2026-09-26T14:00:00+00:00")
+
+
 @pytest.mark.parametrize(
     ("at", "expected"),
     [

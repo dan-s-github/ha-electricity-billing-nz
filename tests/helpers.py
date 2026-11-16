@@ -27,18 +27,23 @@ def template_import(
     *,
     peak: bool | None = None,
     network: float | None = None,
-    loss: float = 1.0476,
+    loss: float | None = None,
 ) -> float:
     """
     Port of the margin-aware electricity_import_price template.
 
-    Give peak for Vector 2026 ARHLC, or network (and loss) for another year.
+    Give peak for Vector 2026 ARHLC, or network and loss (not both) for
+    another year.
     """
     if (peak is None) == (network is None):
         msg = "Give exactly one of peak or network"
         raise TypeError(msg)
-    if network is None:
+    if (network is None) != (loss is None):
+        msg = "Give loss with network only: it changes with the year too"
+        raise TypeError(msg)
+    if network is None or loss is None:
         network = 0.1504 if peak else 0.0457
+        loss = 1.0476
     return ((spot + 0.0286) * loss + network + 0.0302 + 0.002) * 1.15
 
 

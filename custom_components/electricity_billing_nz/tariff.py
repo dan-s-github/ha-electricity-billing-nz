@@ -26,7 +26,8 @@ MINUTES_PER_DAY = 24 * 60
 # The band treated as peak when a schedule doesn't list its peak bands.
 DEFAULT_PEAK_BAND = "peak"
 # Search horizon for the next band change. Vector's 2026 schedule has no peak
-# Oct-Apr, so the next change can be up to seven months away.
+# Oct-Apr and its 2025 one none Oct-Mar, so the next change can be up to seven
+# months away.
 BAND_CHANGE_HORIZON_DAYS = 400
 
 
@@ -237,9 +238,26 @@ def resolve_band(schedule: BandSchedule, at: datetime) -> str:
     return schedule.default
 
 
+def _instants(day: date, minute: int) -> Iterable[datetime]:
+    """
+    Yield, in UTC, each instant NZ clocks show ``minute`` on ``day``.
+
+    That's two instants in the hour repeated when DST ends, and for a time
+    skipped when DST starts, the moment the clocks jump (when it takes effect).
+    """
+    local = datetime.combine(day, time(minute // 60, minute % 60), tzinfo=NZ_TZ)
+    first = local.astimezone(UTC)
+    yield first
+    second = local.replace(fold=1).astimezone(UTC)
+    # In a skipped time the folds differ too, but the second doesn't show
+    # ``minute`` on the clock: it's an hour before the jump.
+    if second != first and second.astimezone(NZ_TZ).time() == local.time():
+        yield second
+
+
 def _candidate_edges(schedule: BandSchedule, day: date) -> Iterable[datetime]:
-    """Yield every instant on ``day`` where the band could change."""
-    yield nz_midnight(day)
+    """Yield, in UTC, every instant on ``day`` where the band could change."""
+    yield nz_midnight(day).astimezone(UTC)
     for rule in schedule.rules:
         if day.month not in rule.months:
             continue
@@ -247,19 +265,30 @@ def _candidate_edges(schedule: BandSchedule, day: date) -> Iterable[datetime]:
             for minute in (start, end):
                 if minute >= MINUTES_PER_DAY:
                     continue  # midnight of the next day is covered there
-                yield datetime.combine(
-                    day, time(minute // 60, minute % 60), tzinfo=NZ_TZ
-                )
+                yield from _instants(day, minute)
 
 
-def next_band_change(schedule: BandSchedule, after: datetime) -> datetime | None:
-    """Return the first instant after ``after`` where the band differs."""
+def next_band_change(
+    schedule: BandSchedule, after: datetime, until: datetime | None = None
+) -> datetime | None:
+    """
+    Return, in UTC, the first instant after ``after`` where the band differs.
+
+    Only changes before ``until`` (if given) and within the horizon count.
+    Times are compared and returned in UTC: within one zone, Python compares
+    wall-clock times, which can't tell the two passes of the hour repeated
+    when DST ends apart.
+    """
     current = resolve_band(schedule, after)
+    after_utc = after.astimezone(UTC)
+    until_utc = until.astimezone(UTC) if until is not None else None
     day = after.astimezone(NZ_TZ).date()
     for offset in range(BAND_CHANGE_HORIZON_DAYS):
         edges = sorted(set(_candidate_edges(schedule, day + timedelta(days=offset))))
         for edge in edges:
-            if edge > after and resolve_band(schedule, edge) != current:
+            if until_utc is not None and edge >= until_utc:
+                return None
+            if edge > after_utc and resolve_band(schedule, edge) != current:
                 return edge
     return None
 
@@ -276,7 +305,7 @@ def next_tariff_band_change(
     versions: Sequence[NetworkVersion], after: datetime
 ) -> datetime | None:
     """
-    Return the next band change, including one caused by a later version.
+    Return the next band change in UTC, including one caused by a later version.
 
     A new version can bring different windows or bands from its effective
     date, so the current schedule alone isn't enough.
@@ -287,11 +316,11 @@ def next_tariff_band_change(
     while True:
         day = start.astimezone(NZ_TZ).date()
         following = next((v for v in versions if v.effective_from > day), None)
-        change = next_band_change(network.bands, start) if network else None
         if following is None:
-            return change
-        boundary = nz_midnight(following.effective_from)
-        if change is not None and change < boundary:
+            return next_band_change(network.bands, start) if network else None
+        boundary = nz_midnight(following.effective_from).astimezone(UTC)
+        change = next_band_change(network.bands, start, boundary) if network else None
+        if change is not None:
             return change
         network = following
         if resolve_band(network.bands, boundary) != current:
