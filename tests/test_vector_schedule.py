@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
+import urllib.error
 from datetime import date
+from email.message import Message
 from pathlib import Path
 
 import pytest
@@ -19,6 +22,8 @@ from tools.vector_schedule import (
     find_schedules,
     parse_schedule,
 )
+
+from .conftest import NETWORK_SNAPSHOT
 
 FIXTURES = Path(__file__).parent / "fixtures"
 # pdftotext -layout output of the 2025 and 2026 schedules.
@@ -51,9 +56,9 @@ def _text_2027(*, morning: str = "07:00 to 11:00") -> str:
 
 @pytest.fixture
 def network_file(tmp_path: Path) -> Path:
-    """Return a copy of the bundled vector.yaml."""
+    """Return a copy of the frozen vector.yaml, which ends at v2026.1."""
     path = tmp_path / "vector.yaml"
-    shutil.copy(VECTOR_YAML, path)
+    shutil.copy(NETWORK_SNAPSHOT / "vector.yaml", path)
     return path
 
 
@@ -210,7 +215,7 @@ def _run_main(
         "_get",
         lambda url: page if url == "page" else url.encode(),
     )
-    monkeypatch.setattr(vector_schedule, "_pdf_text", lambda pdf: pdfs[pdf.decode()])
+    monkeypatch.setattr(vector_schedule, "pdf_text", lambda pdf: pdfs[pdf.decode()])
     output = tmp_path / "output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     assert vector_schedule.main(["--yaml", str(network_file), "--page", "page"]) == 0
@@ -284,3 +289,51 @@ def test_main_stops_at_unreadable_schedule(
     outputs = _run_main(monkeypatch, tmp_path, network_file, pdfs)
     assert outputs["updated"] == "false"
     assert outputs["manual_url"] == URL_OCT_2026
+
+
+def test_main_reports_bundled_revision_first(
+    network_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A corrected bundled schedule isn't hidden by a later unreadable one."""
+    pdfs = {
+        URL_2026: _text("1 April 2026", "v2026.2"),
+        URL_2027: TEXT_2025.replace("1 April 2025", "1 April 2027"),
+    }
+    outputs = _run_main(monkeypatch, tmp_path, network_file, pdfs)
+    assert outputs["manual_url"] == URL_2026
+    # Both problems are reported, the bundled correction first.
+    assert outputs["reason"].index("v2026.2") < outputs["reason"].index("columns")
+    assert URL_2027 in outputs["reason"]
+
+
+def test_main_failed_download_needs_a_person(
+    network_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A schedule that can't be downloaded opens an issue, not a crash."""
+    page = f'<a href="{URL_2027}">'.encode()
+
+    def get(url: str) -> bytes:
+        if url == "page":
+            return page
+        raise urllib.error.HTTPError(url, 500, "Server Error", Message(), None)
+
+    monkeypatch.setattr(vector_schedule, "_get", get)
+    output = tmp_path / "output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    assert vector_schedule.main(["--yaml", str(network_file), "--page", "page"]) == 0
+    outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert outputs["manual"] == "true"
+    assert "500" in outputs["reason"]
+
+
+def test_pdftotext_failure_needs_a_person(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A PDF pdftotext can't read raises LayoutError, with its message."""
+    monkeypatch.setattr(
+        vector_schedule.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            [], 1, b"", b"Syntax Error: broken"
+        ),
+    )
+    with pytest.raises(LayoutError, match="Syntax Error: broken"):
+        vector_schedule.pdf_text(b"%PDF-1.6 broken")

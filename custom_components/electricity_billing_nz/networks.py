@@ -180,8 +180,9 @@ def parse_network(raw: Mapping[str, Any]) -> Network:
     )
 
 
-def load_networks(directory: Path = NETWORKS_DIR) -> dict[str, Network]:
+def load_networks(directory: Path | None = None) -> dict[str, Network]:
     """Load every bundled network file (blocking I/O); bad files are skipped."""
+    directory = directory or NETWORKS_DIR
     networks = {}
     for path in sorted(directory.glob("*.yaml")):
         try:

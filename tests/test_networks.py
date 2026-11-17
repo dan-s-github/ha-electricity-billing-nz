@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from datetime import date
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.electricity_billing_nz.networks import (
+    NETWORKS_DIR,
     NetworkDataError,
     apply_loss_overrides,
     apply_network_overrides,
@@ -20,7 +21,36 @@ from custom_components.electricity_billing_nz.networks import (
 )
 from custom_components.electricity_billing_nz.tariff import version_on
 
-NETWORKS = load_networks()
+from .conftest import NETWORK_SNAPSHOT
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+# The live bundled data, not the tests' frozen copy.
+NETWORKS = load_networks(NETWORKS_DIR)
+
+
+def test_bundled_data_extends_the_frozen_copy() -> None:
+    """
+    Newly bundled schedules only add versions after the frozen copy's.
+
+    The tests use the frozen copy (conftest.NETWORK_SNAPSHOT), so this is
+    what checks a schedule the Vector schedule workflow adds.
+    """
+    frozen = load_networks(NETWORK_SNAPSHOT)
+    for key, network in frozen.items():
+        live = NETWORKS[key]
+        assert live.participants == network.participants
+        for live_map, frozen_map in (
+            (live.categories, network.categories),
+            (live.loss_categories, network.loss_categories),
+        ):
+            for code, versions in frozen_map.items():
+                assert live_map[code][: len(versions)] == versions, code
+                assert all(
+                    v.effective_from > versions[-1].effective_from
+                    for v in live_map[code][len(versions) :]
+                )
 
 
 def test_every_bundled_network_is_valid() -> None:
@@ -178,10 +208,7 @@ def test_bad_file_is_skipped(tmp_path: Path, caplog: pytest.LogCaptureFixture) -
     """One malformed file doesn't stop the other networks loading."""
     (tmp_path / "bad.yaml").write_text("distributor: bad\ncategories: {}\n")
     (tmp_path / "broken.yaml").write_text("distributor: [unclosed\n")
-    good = Path(__file__).parents[1] / (
-        "custom_components/electricity_billing_nz/networks/vector.yaml"
-    )
-    (tmp_path / "vector.yaml").write_text(good.read_text())
+    (tmp_path / "vector.yaml").write_text((NETWORKS_DIR / "vector.yaml").read_text())
 
     assert list(load_networks(tmp_path)) == ["vector"]
     assert "bad.yaml" in caplog.text

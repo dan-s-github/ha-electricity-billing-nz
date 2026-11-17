@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+from unittest.mock import patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -20,6 +22,9 @@ from custom_components.electricity_billing_nz.const import (
     CONF_SETTLED_ENTITY,
     DOMAIN,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 SETTLED = "sensor.ros0221_settled_price"
 ICP = "0000012345VE123"
@@ -42,6 +47,22 @@ ECOTRICITY = {
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
     """Enable loading integrations from custom_components in tests."""
+
+
+# A frozen copy of the bundled network data the tests are written against,
+# so bundling a new schedule (see tools/vector_schedule.py) doesn't change
+# which version is latest. test_networks.py checks the live data.
+NETWORK_SNAPSHOT = Path(__file__).parent / "fixtures" / "networks"
+
+
+@pytest.fixture(autouse=True)
+def bundled_network_snapshot() -> Iterator[None]:
+    """Point the integration's network directory at the frozen data."""
+    with patch(
+        "custom_components.electricity_billing_nz.networks.NETWORKS_DIR",
+        NETWORK_SNAPSHOT,
+    ):
+        yield
 
 
 @pytest.fixture(autouse=True)

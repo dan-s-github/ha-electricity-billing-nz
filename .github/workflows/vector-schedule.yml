@@ -91,7 +91,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EFFECTIVE_FROM: ${{ steps.check.outputs.manual_effective_from }}
-          URL: ${{ steps.check.outputs.manual_url }}
           REASON: ${{ steps.check.outputs.reason }}
         run: |
           title="Check Vector's pricing schedule from ${EFFECTIVE_FROM}"
@@ -100,11 +99,8 @@ jobs:
             exit 0
           fi
           gh issue create --title "$title" --body "$(cat <<EOF
-          Vector's pricing schedule from ${EFFECTIVE_FROM} needs a person:
-          ${URL}
+          Vector's pricing schedules need a person: ${REASON}
 
-          ${REASON}
-
-          Add or correct it in \`custom_components/electricity_billing_nz/networks/vector.yaml\` by hand. If the layout changed for good, update \`tools/vector_schedule.py\` too. Later schedules wait until this one is bundled.
+          Add or correct them in \`custom_components/electricity_billing_nz/networks/vector.yaml\` by hand. If the layout changed for good, update \`tools/vector_schedule.py\` too.
           EOF
           )"

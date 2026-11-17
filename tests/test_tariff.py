@@ -31,9 +31,10 @@ from custom_components.electricity_billing_nz.tariff import (
     version_on,
 )
 
+from .conftest import NETWORK_SNAPSHOT
 from .helpers import template_export, template_import
 
-VECTOR = load_networks()["vector"]
+VECTOR = load_networks(NETWORK_SNAPSHOT)["vector"]
 ARHLC = VECTOR.categories["ARHLC"]
 # Versions by date, so adding a later year doesn't move them.
 ARHLC_2025 = version_on(ARHLC, date(2025, 4, 1))
@@ -230,6 +231,34 @@ def test_next_band_change_skipped_hour() -> None:
     # 2026-09-27: clocks go from 02:00 NZST to 03:00 NZDT (14:00 UTC).
     change = next_band_change(skipped, nz("2026-09-27 01:00"))
     assert change == datetime.fromisoformat("2026-09-26T14:00:00+00:00")
+
+
+# 02:30-03:30 in April and September: the clock changes cross it.
+AROUND_CHANGEOVER = BandSchedule(
+    name="around_changeover",
+    rules=(BandRule(band="peak", months=frozenset({4, 9}), windows=((150, 210),)),),
+    default="offpeak",
+)
+
+
+@pytest.mark.parametrize(
+    ("after", "expected"),
+    [
+        # 2026-04-05: at 03:00 NZDT (14:00 UTC) clocks go back to 02:00 NZST,
+        # before the window: off-peak until 02:30 comes round again.
+        ("2026-04-05T02:40:00+13:00", "2026-04-04T14:00:00+00:00"),
+        ("2026-04-04T14:00:00+00:00", "2026-04-04T14:30:00+00:00"),
+        # 2026-09-27: at 02:00 NZST (14:00 UTC) clocks jump to 03:00 NZDT,
+        # inside the window.
+        ("2026-09-27T01:40:00+12:00", "2026-09-26T14:00:00+00:00"),
+        ("2026-09-26T14:00:00+00:00", "2026-09-26T14:30:00+00:00"),
+    ],
+)
+def test_next_band_change_at_clock_change(after: str, expected: str) -> None:
+    """A clock change can change the band between window edges."""
+    change = next_band_change(AROUND_CHANGEOVER, datetime.fromisoformat(after))
+    assert change is not None
+    assert change.astimezone(UTC) == datetime.fromisoformat(expected)
 
 
 @pytest.mark.parametrize(

@@ -23,6 +23,8 @@ NZ_TZ = ZoneInfo("Pacific/Auckland")
 PERIOD = timedelta(minutes=30)
 GST_RATE = 1.15
 MINUTES_PER_DAY = 24 * 60
+# Trading periods in an NZ day: 48, or 46 and 50 when the clocks change.
+PERIODS_PER_DAY_MAX = 50
 # The band treated as peak when a schedule doesn't list its peak bands.
 DEFAULT_PEAK_BAND = "peak"
 # Search horizon for the next band change. Vector's 2026 schedule has no peak
@@ -255,9 +257,27 @@ def _instants(day: date, minute: int) -> Iterable[datetime]:
         yield second
 
 
+def _clock_change(midnight: datetime) -> datetime | None:
+    """Return, in UTC, when NZ clocks change on ``midnight``'s day, or None."""
+    offset = midnight.utcoffset()
+    if nz_midnight(midnight.date() + timedelta(days=1)).utcoffset() == offset:
+        return None
+    # NZ clocks change on the hour, so half-hour steps from midnight land on it.
+    instant = midnight.astimezone(UTC)
+    for _ in range(PERIODS_PER_DAY_MAX):
+        instant += timedelta(minutes=30)
+        if instant.astimezone(NZ_TZ).utcoffset() != offset:
+            return instant
+    return None
+
+
 def _candidate_edges(schedule: BandSchedule, day: date) -> Iterable[datetime]:
     """Yield, in UTC, every instant on ``day`` where the band could change."""
-    yield nz_midnight(day).astimezone(UTC)
+    midnight = nz_midnight(day)
+    yield midnight.astimezone(UTC)
+    # A clock change can move the time into or out of a window between edges.
+    if (change := _clock_change(midnight)) is not None:
+        yield change
     for rule in schedule.rules:
         if day.month not in rule.months:
             continue

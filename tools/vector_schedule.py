@@ -383,7 +383,8 @@ def _get(url: str) -> bytes:
         return response.read()
 
 
-def _pdf_text(pdf: bytes) -> str:
+def pdf_text(pdf: bytes) -> str:
+    """Return a PDF's pdftotext -layout text; LayoutError if it can't be read."""
     if not pdf.startswith(b"%PDF"):
         msg = "The schedule link isn't a PDF"
         raise LayoutError(msg)
@@ -391,14 +392,22 @@ def _pdf_text(pdf: bytes) -> str:
         ["pdftotext", "-layout", "-", "-"],  # noqa: S607
         input=pdf,
         capture_output=True,
-        check=True,
+        check=False,
     )
-    return result.stdout.decode("utf-8")
+    if result.returncode:
+        error = result.stderr.decode("utf-8", errors="replace").strip()
+        msg = f"pdftotext couldn't read the PDF: {error or result.returncode}"
+        raise LayoutError(msg)
+    try:
+        return result.stdout.decode("utf-8")
+    except UnicodeDecodeError as err:
+        msg = f"pdftotext output isn't UTF-8: {err}"
+        raise LayoutError(msg) from err
 
 
 def _read_schedule(url: str, effective_from: date) -> Schedule:
     """Download and parse a schedule, checking it's the one the link names."""
-    schedule = parse_schedule(_pdf_text(_get(url)), url)
+    schedule = parse_schedule(pdf_text(_get(url)), url)
     return _check_date(schedule, effective_from)
 
 
@@ -424,7 +433,7 @@ def _output(**values: str) -> None:
 
 def _revision(url: str, bundled_version: str) -> str | None:
     """Return why the bundled schedule's PDF needs a look, or None."""
-    text = _pdf_text(_get(url))
+    text = pdf_text(_get(url))
     if (version := VERSION.search(text)) is None:
         return "The bundled schedule's PDF has no 'Version:' line"
     if version.group(1) != bundled_version:
@@ -440,9 +449,10 @@ def main(argv: list[str] | None = None) -> int:
     Add every linked schedule newer than the bundled data, oldest first.
 
     Outputs for the workflow: updated (true/false) with the versions added,
-    and manual (true/false) with the schedule a person must handle and why.
-    Adding stops at the first schedule that can't be read, so later ones
-    aren't added out of order.
+    and manual (true/false) with what a person must handle and why: a
+    revised bundled schedule, and the first newer schedule that couldn't be
+    read or downloaded. Adding stops there, so later ones aren't added out
+    of order.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--yaml", type=Path, default=VECTOR_YAML)
@@ -456,22 +466,24 @@ def main(argv: list[str] | None = None) -> int:
     linked = find_schedules(page, args.page)
 
     added: list[Schedule] = []
-    manual: tuple[date, str, str] | None = None
+    manual: list[tuple[date, str, str]] = []
     if bundled in linked:
         try:
             reason = _revision(linked[bundled], latest["schedule_version"])
-        except LayoutError as err:
+        except (LayoutError, OSError) as err:
             reason = str(err)
         if reason:
-            manual = (bundled, linked[bundled], reason)
+            manual.append((bundled, linked[bundled], reason))
     for effective_from in sorted(d for d in linked if d > bundled):
         url = linked[effective_from]
         try:
             schedule = _read_schedule(url, effective_from)
             if add_schedule(args.yaml, schedule):
                 added.append(schedule)
-        except LayoutError as err:
-            manual = (effective_from, url, str(err))
+        except (LayoutError, OSError) as err:
+            # OSError: the download failed, or pdftotext is missing.
+            later = " Later schedules wait until this one is bundled."
+            manual.append((effective_from, url, f"{err}{later}"))
             break
 
     _output(
@@ -481,11 +493,14 @@ def main(argv: list[str] | None = None) -> int:
         manual="true" if manual else "false",
     )
     if manual:
-        effective_from, url, reason = manual
+        # The issue is titled after the first; its text lists them all.
         _output(
-            manual_effective_from=effective_from.isoformat(),
-            manual_url=url,
-            reason=reason.replace("\n", " "),
+            manual_effective_from=manual[0][0].isoformat(),
+            manual_url=manual[0][1],
+            reason=" ".join(
+                f"[{d.isoformat()}]({url}): {reason}".replace("\n", " ")
+                for d, url, reason in manual
+            ),
         )
     return 0
 
