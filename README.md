@@ -74,12 +74,19 @@ off-peak) that period *t* falls in, using the lines company's peak windows.
     for EMHASS and similar optimisers (needs the forecast sensor)
   - daily charge (NZD/day)
   - current time-of-use band and when it next changes
+- **Billing cycle** (optional, needs grid import and export energy sensors):
+  - import and export kWh this cycle, per time-of-use band
+  - average import and export energy rates (ex GST), to set against the
+    bill's energy lines
+  - an estimated bill total, with the invoice lines as attributes: daily
+    charges, network per band, energy, transmission, levy, export and GST,
+    and the previous cycle's
+  - import cost and export earnings totals since billing was set up
 - **Binary sensor**: on during peak.
 - **Services**: `price_at` (the price for a given time and spot price, for
   backtests) and `export_versions` (the rate versions in force, as YAML).
 
-Planned: billing-cycle average rates and an estimated bill total, to check
-against your bill, and more lines companies.
+Planned: more lines companies.
 
 ## Installation
 
@@ -149,6 +156,8 @@ When a rate changes later, open the entry's **Configure** menu:
   can't be before the bundled data starts.
 - **Change source entities**: the live and forecast sensors. The settled
   sensor is fixed; to change it, re-add the entry.
+- **Billing cycle**: the grid import and export energy sensors (Wh, kWh or
+  MWh) and the day of the month your bill starts on (1 to 28). See below.
 - **ICP number**.
 - **GST**: whether the reported prices include GST. Changing it moves the
   price history by 15% from then on, and `price_at` uses the current setting
@@ -171,6 +180,29 @@ The response has `period_start` (the start of the trading period priced),
 `import` and `export`, the same as the price sensors' attributes. Periods
 before the bundled network data starts can't be priced.
 
+### Billing cycle
+
+With the energy sensors set, each trading period's energy is priced at that
+period's settled spot, with the rates in force then, so the estimate follows
+the bill's half-hourly pricing.
+
+- Energy counts as soon as the meter reports it. Until its period settles, it
+  is priced at the live spot and counted as provisional
+  (`provisional_periods`).
+- A period with no settled price after 48 hours keeps the live price and is
+  counted in `unsettled_periods`.
+- The cycle that was running when you set billing up is partial: the total's
+  `complete` attribute is false until the first full cycle.
+- Bills use the final wholesale prices, published days later; the settled
+  prices are interim, so expect small differences.
+- The estimate includes GST unless the entry's GST option is off.
+- The meter is stored with the entry and survives restarts. A gap while Home
+  Assistant was down is shared evenly over the periods it covers.
+- A reading more than 10% below the last one is a meter reset (e.g. a daily
+  total); a smaller drop is ignored.
+- Changing a meter starts it from a new baseline. Changing the cycle day
+  starts new cycles, marked incomplete until the next full one.
+
 ## Not in scope
 
 - Fetching wholesale prices (use ha-electricityinfo-nz).
@@ -180,7 +212,7 @@ before the bundled network data starts can't be priced.
 ## Roadmap
 
 1. Vector network, one retailer plan, price sensors and `price_at` (done).
-2. Bill reconciliation sensors and billing-cycle options.
+2. Bill reconciliation sensors and billing-cycle options (done).
 3. More lines companies and a marketplace release.
 
 ## Development

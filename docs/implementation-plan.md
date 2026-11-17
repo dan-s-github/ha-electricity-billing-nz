@@ -162,7 +162,12 @@ Update `strings.json` and `translations/en.json` together; `tests/test_translati
   - Have `backtest.py` call `price_at` or import `tariff.py`.
   - Then delete the duplicated constants.
 
-## Phase 2: billing cycle
+## Phase 2: billing cycle (built)
+
+Built as planned, in `billing.py` and `tests/test_billing.py` / `tests/test_billing_sensors.py`. Differences from the plan:
+- The import cost and export earnings totals count periods once they're final (settled, or after 48 h), so they lag about a period; the cycle estimate includes provisional periods.
+- The meter ticks (new cycle, overdue periods) on every bill update, not on the boundary timer alone: the timer passes its scheduled time, not now.
+- A period without any spot (no live source and no settled price yet) is metered but not priced, and counts in `unpriced_periods`.
 
 Goal: estimate the bill for the current billing cycle, line by line, so it can be checked against the invoice. This replaces these parts of `electricity_pricing.yaml`:
 - the `grid_import_billing` / `grid_export_billing` utility meters (split by band) and the automation that switches their tariff

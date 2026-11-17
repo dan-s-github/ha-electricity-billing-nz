@@ -22,11 +22,14 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.start import async_at_started
 from homeassistant.util import dt as dt_util
 
+from .billing import to_kwh
 from .const import (
     CONF_EFFECTIVE_FROM,
+    CONF_EXPORT_ENERGY_ENTITY,
     CONF_EXPORT_FLOOR,
     CONF_FORECAST_ENTITY,
     CONF_GST_INCLUSIVE,
+    CONF_IMPORT_ENERGY_ENTITY,
     CONF_LIVE_ENTITY,
     CONF_LOSS_CATEGORY,
     CONF_NETWORK_OVERRIDES,
@@ -59,7 +62,7 @@ from .tariff import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import (
@@ -69,9 +72,15 @@ if TYPE_CHECKING:
     )
     from homeassistant.helpers.entity_registry import EventEntityRegistryUpdatedData
 
+    from .billing import Bill, BillingMeter, Side
     from .networks import Network
 
 RETAILER_FIELDS = (*RETAILER_PER_KWH_FIELDS, *RETAILER_DAILY_FIELDS, CONF_EXPORT_FLOOR)
+# The energy meter option for each side of the billing meter.
+ENERGY_OPTIONS: tuple[tuple[Side, str], ...] = (
+    ("import", CONF_IMPORT_ENERGY_ENTITY),
+    ("export", CONF_EXPORT_ENERGY_ENTITY),
+)
 
 
 def signal_updated(entry_id: str) -> str:
@@ -241,8 +250,19 @@ def _has_value(state: State) -> bool:
 class BillingEngine:
     """Recompute landed prices on source changes and period boundaries."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, tariff: Tariff) -> None:
-        """Initialise the engine for one config entry."""
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        tariff: Tariff,
+        meter: BillingMeter | None = None,
+        save: Callable[[], None] | None = None,
+    ) -> None:
+        """
+        Initialise the engine for one config entry.
+
+        ``meter`` is given when billing is set up; ``save`` then stores it.
+        """
         self.hass = hass
         self.entry = entry
         self.tariff = tariff
@@ -252,6 +272,16 @@ class BillingEngine:
         self.forecast_entity = _resolve_optional(
             hass, entry.data.get(CONF_FORECAST_ENTITY)
         )
+        self.meter = meter
+        self._save = save
+        # Energy meters by side, by current entity id.
+        self.energy_entities: dict[Side, str] = {}
+        if meter is not None:
+            for side, key in ENERGY_OPTIONS:
+                if entity_id := _resolve_optional(hass, entry.options.get(key)):
+                    self.energy_entities[side] = entity_id
+        self.bill: Bill | None = None
+        self.previous_bill: Bill | None = None
         self.settled: PricePair | None = None
         self.live: PricePair | None = None
         self.forecast: list[ForecastRow] = []
@@ -294,9 +324,19 @@ class BillingEngine:
         )
         self._unsubscribers.append(
             async_track_entity_registry_updated_event(
-                self.hass, self.sources, self._handle_registry_update
+                self.hass,
+                [*self.sources, *self.energy_entities.values()],
+                self._handle_registry_update,
             )
         )
+        if self.meter is not None:
+            self._unsubscribers.append(
+                async_track_state_change_event(
+                    self.hass, list(self.energy_entities.values()), self._handle_energy
+                )
+            )
+            for side, entity_id in self.energy_entities.items():
+                self._read_energy(side, self.hass.states.get(entity_id))
         if self.hass.state is CoreState.running:
             # A reload, not a restart: there's no startup to wait for.
             self.source_reported.update(self.sources)
@@ -344,7 +384,43 @@ class BillingEngine:
             self._update_live()
         if entity_id == self.forecast_entity:
             self._update_forecast(current_start)
+        if entity_id in (self.settled_entity, self.live_entity):
+            self._update_bill()
         async_dispatcher_send(self.hass, signal_updated(self.entry.entry_id))
+
+    @callback
+    def _handle_energy(self, event: Event[EventStateChangedData]) -> None:
+        """Count a new energy meter reading."""
+        side = next(
+            s for s, e in self.energy_entities.items() if e == event.data["entity_id"]
+        )
+        if self._read_energy(side, event.data["new_state"]):
+            self._update_bill()
+            async_dispatcher_send(self.hass, signal_updated(self.entry.entry_id))
+
+    def _read_energy(self, side: Side, state: State | None) -> bool:
+        """Pass a usable reading to the meter; return True if energy was added."""
+        if self.meter is None or state is None or not _has_value(state):
+            return False
+        try:
+            kwh = to_kwh(
+                float(state.state), state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+            )
+        except ValueError:
+            return False
+        return self.meter.add_reading(side, kwh, state.last_updated)
+
+    def _update_bill(self) -> None:
+        """Recompute the cycle estimates and schedule a save."""
+        if self.meter is None:
+            return
+        now = dt_util.now()
+        # Start a new cycle when it's due, and make overdue periods final.
+        self.meter.tick(now)
+        self.bill = self.meter.bill(now)
+        self.previous_bill = self.meter.bill(now, previous=True)
+        if self._save is not None:
+            self._save()
 
     @callback
     def _handle_boundary(self, _now: datetime) -> None:
@@ -416,6 +492,7 @@ class BillingEngine:
         ):
             self.next_band_change = next_tariff_band_change(self.tariff.network, now)
             self._band_change_checked = today
+        self._update_bill()
         async_dispatcher_send(self.hass, signal_updated(self.entry.entry_id))
 
     def _source_state(self, entity_id: str) -> State | None:
@@ -441,10 +518,46 @@ class BillingEngine:
 
     def _update_settled(self) -> None:
         self.settled = self._price_source(self.settled_entity, 1)
+        self._settle_billing()
 
     def _update_live(self) -> None:
         if self.live_entity:
             self.live = self._price_source(self.live_entity, 0)
+            if self.meter is not None and self.live is not None:
+                self.meter.set_live_spot(
+                    self.live.period_start, self.live.import_price.spot
+                )
+
+    def _settle_billing(self) -> None:
+        """
+        Price metered periods the settled source has a price for.
+
+        The source's history covers about a day, so periods missed while HA
+        was down still settle. Settling an already priced period does nothing.
+        """
+        if self.meter is None:
+            return
+        state = self.hass.states.get(self.settled_entity)
+        if state is None or not _has_value(state):
+            return
+        unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+        for raw in _rows(state.attributes.get("history")):
+            stamp = parse_time(raw.get("period_start"))
+            if stamp is None:
+                continue
+            start, _ = _row_period(stamp, _trading_period(raw.get("trading_period")))
+            try:
+                spot = to_nzd_per_kwh(float(raw["price"]), unit)
+            except KeyError, TypeError, ValueError:
+                continue
+            self.meter.settle(start, spot)
+        if (settled := self.settled) is not None:
+            spot = settled.import_price.spot
+            self.meter.settle(settled.period_start, spot)
+            if not self.live_entity:
+                # Without a live source, the latest settled spot is the best
+                # guess for periods that haven't settled.
+                self.meter.latest_spot = spot
 
     def _update_forecast(self, current_start: datetime) -> None:
         if not self.forecast_entity:

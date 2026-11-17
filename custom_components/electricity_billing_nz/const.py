@@ -22,6 +22,13 @@ CONF_ICP = "icp"
 # Config entry options
 CONF_RETAILER_VERSIONS = "retailer_versions"
 CONF_NETWORK_OVERRIDES = "network_overrides"
+# Billing cycle: off until an import energy sensor is set.
+CONF_IMPORT_ENERGY_ENTITY = "import_energy_entity"
+CONF_EXPORT_ENERGY_ENTITY = "export_energy_entity"
+CONF_BILLING_CYCLE_DAY = "billing_cycle_day"
+DEFAULT_BILLING_CYCLE_DAY = 1
+# Every month has a 28th.
+MAX_BILLING_CYCLE_DAY = 28
 
 # Retailer plan fields. Rates are stored in NZD/kWh and NZD/day; the forms
 # take c/kWh for per-kWh values.
@@ -50,6 +57,7 @@ PRICE_UNIT = "NZD/kWh"
 # Decimal places for prices in states, attributes and service responses.
 PRICE_PRECISION = 6
 DAILY_UNIT = "NZD/day"
+CURRENCY = "NZD"
 
 SERVICE_PRICE_AT = "price_at"
 SERVICE_EXPORT_VERSIONS = "export_versions"

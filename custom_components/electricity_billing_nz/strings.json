@@ -100,7 +100,9 @@
       "duplicate_source": "Pick a different sensor for each source.",
       "invalid_icp": "Enter the 15-character ICP number from your bill (10 digits, 2 letters, then 3 letters or digits), or leave it empty.",
       "icp_in_use": "Another entry already uses this ICP number.",
-      "icp_in_setup": "A setup that hasn't finished is using this ICP number. Finish or close it first."
+      "icp_in_setup": "A setup that hasn't finished is using this ICP number. Finish or close it first.",
+      "invalid_energy_unit": "The sensor's unit must be Wh, kWh or MWh.",
+      "import_energy_required": "Choose an import meter to use an export meter."
     },
     "step": {
       "init": {
@@ -108,6 +110,7 @@
           "add_retailer_version": "Add retailer rate version",
           "add_network_override": "Override network values",
           "sources": "Change source entities",
+          "billing": "Billing cycle",
           "connection": "ICP number",
           "gst": "GST"
         }
@@ -159,6 +162,20 @@
         "data_description": {
           "live_entity": "Optional. Used for the live price sensors.",
           "forecast_entity": "Optional. Used for the forecast price sensors."
+        }
+      },
+      "billing": {
+        "title": "Billing cycle",
+        "description": "Meter the energy you import and export, priced at each trading period's settled price, to estimate the bill for the current cycle. Leave the import meter empty to turn this off.",
+        "data": {
+          "import_energy_entity": "Grid import energy",
+          "export_energy_entity": "Grid export energy",
+          "billing_cycle_day": "Billing cycle start day"
+        },
+        "data_description": {
+          "import_energy_entity": "A meter of energy taken from the grid, in Wh, kWh or MWh.",
+          "export_energy_entity": "Optional. A meter of energy sent to the grid.",
+          "billing_cycle_day": "The day of the month your bill starts on (1 to 28)."
         }
       },
       "connection": {
@@ -216,6 +233,27 @@
       },
       "next_band_change": {
         "name": "Next band change"
+      },
+      "billing_cycle_import_energy": {
+        "name": "Billing cycle import energy"
+      },
+      "billing_cycle_export_energy": {
+        "name": "Billing cycle export energy"
+      },
+      "billing_cycle_import_energy_rate": {
+        "name": "Billing cycle import energy rate"
+      },
+      "billing_cycle_export_energy_rate": {
+        "name": "Billing cycle export energy rate"
+      },
+      "billing_cycle_estimated_total": {
+        "name": "Billing cycle estimated total"
+      },
+      "import_cost_total": {
+        "name": "Import cost total"
+      },
+      "export_earnings_total": {
+        "name": "Export earnings total"
       }
     },
     "binary_sensor": {
