@@ -49,6 +49,8 @@ class Network:
     name: str
     categories: Mapping[str, tuple[NetworkVersion, ...]]
     loss_categories: Mapping[str, tuple[LossVersion, ...]]
+    # Registry network participant codes, e.g. VECT, for the ICP lookup.
+    participants: frozenset[str] = frozenset()
 
 
 def _minutes(text: str) -> int:
@@ -159,6 +161,11 @@ def parse_network(raw: Mapping[str, Any]) -> Network:
             )
             for code, versions in raw["loss_categories"].items()
         }
+        codes = raw.get("participants") or []
+        if not isinstance(codes, list):
+            msg = f"{key}: participants must be a list of registry codes"
+            raise NetworkDataError(msg)
+        participants = frozenset(str(code).upper() for code in codes)
     except (KeyError, TypeError, AttributeError, ValueError) as err:
         if isinstance(err, NetworkDataError):
             raise
@@ -169,6 +176,7 @@ def parse_network(raw: Mapping[str, Any]) -> Network:
         name=str(raw.get("name", key)),
         categories=categories,
         loss_categories=loss_categories,
+        participants=participants,
     )
 
 

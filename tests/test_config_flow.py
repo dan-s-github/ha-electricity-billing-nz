@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
@@ -9,7 +11,7 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.electricity_billing_nz.const import DOMAIN
-from custom_components.electricity_billing_nz.icp import normalise_icp
+from custom_components.electricity_billing_nz.icp import RegistryRecord, normalise_icp
 
 from .conftest import ECOTRICITY, FORECAST, ICP, LIVE, SETTLED, entry_data
 
@@ -30,6 +32,29 @@ def sources(hass: HomeAssistant) -> None:
     """Provide the ha-electricityinfo-nz entities the flow validates."""
     for entity_id in (SETTLED, LIVE, FORECAST):
         hass.states.async_set(entity_id, "12.0", {"unit_of_measurement": "c/kWh"})
+
+
+@pytest.fixture(autouse=True)
+def registry() -> AsyncMock:
+    """Stub the registry lookup: by default it finds nothing."""
+    with patch(
+        "custom_components.electricity_billing_nz.config_flow.async_lookup_icp",
+        AsyncMock(return_value=None),
+    ) as lookup:
+        yield lookup
+
+
+RECORD = RegistryRecord(
+    network="VECT", poc="ROS0221", price_category="ARHLC", loss_category="VECA1"
+)
+
+
+def _suggested(result: dict) -> dict:
+    return {
+        str(key): key.description["suggested_value"]
+        for key in result["data_schema"].schema
+        if key.description and "suggested_value" in key.description
+    }
 
 
 async def _start(hass: HomeAssistant) -> dict:
@@ -131,6 +156,91 @@ async def test_icp_is_unique_id(hass: HomeAssistant) -> None:
     assert result["step_id"] == "network"
     flow = hass.config_entries.flow.async_get(result["flow_id"])
     assert flow["context"]["unique_id"] == ICP
+
+
+async def test_registry_preselects_network_and_categories(
+    hass: HomeAssistant, registry: AsyncMock
+) -> None:
+    """The ICP's registry record pre-selects the network and both categories."""
+    registry.return_value = RECORD
+    hass.states.async_set(
+        SETTLED, "12.0", {"unit_of_measurement": "c/kWh", "node": "ROS0221"}
+    )
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "Home", "icp": ICP, "settled_entity": SETTLED}
+    )
+    registry.assert_awaited_once_with(hass, ICP)
+    assert result["step_id"] == "network"
+    assert result["errors"] == {}
+    assert _suggested(result) == {"distributor": "vector"}
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"distributor": "vector"}
+    )
+    assert _suggested(result) == {"price_category": "ARHLC", "loss_category": "VECA1"}
+
+
+async def test_registry_poc_mismatch_warns(
+    hass: HomeAssistant, registry: AsyncMock
+) -> None:
+    """A settled sensor for another node is flagged, but doesn't block setup."""
+    registry.return_value = RECORD
+    hass.states.async_set(
+        SETTLED, "12.0", {"unit_of_measurement": "c/kWh", "node": "HEN0331"}
+    )
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "Home", "icp": ICP, "settled_entity": SETTLED}
+    )
+    assert result["errors"] == {"base": "poc_mismatch"}
+    assert result["description_placeholders"] == {"poc": "ROS0221", "node": "HEN0331"}
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"distributor": "vector"}
+    )
+    assert result["step_id"] == "category"
+
+
+@pytest.mark.parametrize(
+    ("record", "network"),
+    [
+        # A network that isn't bundled: its codes aren't Vector's either.
+        (RegistryRecord("UNET", "ROS0221", "ARHLC", "VECA1"), {}),
+        # Codes that aren't in the bundled data.
+        (
+            RegistryRecord("VECT", "ROS0221", "NOPE", "NOPE1"),
+            {"distributor": "vector"},
+        ),
+    ],
+)
+async def test_registry_unknown_values_not_suggested(
+    hass: HomeAssistant,
+    registry: AsyncMock,
+    record: RegistryRecord,
+    network: dict[str, str],
+) -> None:
+    """Only values the bundled data has are pre-selected."""
+    registry.return_value = record
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "Home", "icp": ICP, "settled_entity": SETTLED}
+    )
+    assert _suggested(result) == network
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"distributor": "vector"}
+    )
+    assert _suggested(result) == {}
+
+
+async def test_no_registry_lookup_without_icp(
+    hass: HomeAssistant, registry: AsyncMock
+) -> None:
+    """Without an ICP number there's nothing to look up."""
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "Home", "settled_entity": SETTLED}
+    )
+    registry.assert_not_awaited()
+    assert _suggested(result) == {}
 
 
 async def test_already_configured(hass: HomeAssistant) -> None:

@@ -11,7 +11,8 @@
       "duplicate_source": "Pick a different sensor for each source.",
       "invalid_icp": "Enter the 15-character ICP number from your bill (10 digits, 2 letters, then 3 letters or digits), or leave it empty.",
       "icp_in_use": "Another entry already uses this ICP number. Clear it to add another entry for the same node, e.g. to compare plans.",
-      "icp_in_setup": "A setup that hasn't finished is using this ICP number. Finish or close it first."
+      "icp_in_setup": "A setup that hasn't finished is using this ICP number. Finish or close it first.",
+      "poc_mismatch": "The ICP's registry record connects it at {poc}, but the settled price sensor is for {node}. If that's wrong, close this setup and start again with the sensors for {poc}."
     },
     "step": {
       "user": {
@@ -36,11 +37,14 @@
         "title": "Lines company",
         "data": {
           "distributor": "Lines company"
+        },
+        "data_description": {
+          "distributor": "Pre-selected from the ICP's Electricity Authority registry record when the ICP number was entered and the lookup worked."
         }
       },
       "category": {
         "title": "Categories",
-        "description": "Use the codes on your ICP's Electricity Authority registry record, or the ones your bill charges for ({network}).",
+        "description": "Use the codes on your ICP's Electricity Authority registry record, or the ones your bill charges for ({network}). With an ICP number entered, they're pre-selected from the registry record when the lookup works.",
         "data": {
           "price_category": "Price category",
           "loss_category": "Loss category"

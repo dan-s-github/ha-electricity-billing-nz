@@ -125,7 +125,12 @@ for the wholesale price.
    example to compare plans.
 4. **Lines company**, then **Categories**: pick the price category and loss
    category on your ICP's Electricity Authority registry record (or the ones
-   your bill charges for).
+   your bill charges for). If you entered an ICP number, setup looks up the
+   record on the Authority's public
+   [Your meter](https://www.ea.govt.nz/your-power/your-meter/) page and
+   pre-selects the lines company and both categories. It also warns if the
+   record's point of connection isn't the settled sensor's node. If the page
+   can't be read, pick them yourself.
 5. **Retailer plan**: enter the per-kWh values in c/kWh and the daily charges
    in NZD/day, all excluding GST. **Prices include GST** (on by default) adds
    GST to the prices and daily charge the integration reports; turn it off

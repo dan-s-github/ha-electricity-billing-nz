@@ -67,6 +67,7 @@ def test_vector_2025_values() -> None:
     )
     assert version_on(vector.loss_categories["VECA1"], on_2025).factor == 1.0533
     assert arhlc.source.endswith("effectivefrom1april2025.pdf")
+    assert vector.participants == {"VECT"}
 
 
 def _raw(**category: object) -> dict[str, object]:
@@ -155,6 +156,22 @@ def test_bad_value_is_wrapped() -> None:
     """A value that won't convert names the problem as network data."""
     with pytest.raises(NetworkDataError, match="Malformed"):
         parse_network(_raw(daily="lots"))
+
+
+@pytest.mark.parametrize(
+    ("participants", "expected"),
+    [(["vect", "UNET"], {"VECT", "UNET"}), (None, set())],
+)
+def test_participants(participants: list[str] | None, expected: set[str]) -> None:
+    """Registry participant codes are upper-cased; none is allowed."""
+    raw = {**_raw(), "participants": participants}
+    assert parse_network(raw).participants == expected
+
+
+def test_participants_must_be_a_list() -> None:
+    """A bare code would otherwise become a set of letters."""
+    with pytest.raises(NetworkDataError, match="participants"):
+        parse_network({**_raw(), "participants": "VECT"})
 
 
 def test_bad_file_is_skipped(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:

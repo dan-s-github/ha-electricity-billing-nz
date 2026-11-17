@@ -47,7 +47,12 @@ from .const import (
     RETAILER_DAILY_FIELDS,
     RETAILER_PER_KWH_FIELDS,
 )
-from .icp import async_remove_ignored, async_validate_icp
+from .icp import (
+    RegistryRecord,
+    async_lookup_icp,
+    async_remove_ignored,
+    async_validate_icp,
+)
 from .networks import (
     OVERRIDE_DAILY,
     OVERRIDE_EXPORT_CREDIT_PREFIX,
@@ -212,6 +217,7 @@ class ElectricityBillingNzConfigFlow(ConfigFlow, domain=DOMAIN):
         self._data: dict[str, Any] = {}
         self._title = ""
         self._networks: dict[str, Network] = {}
+        self._registry: RegistryRecord | None = None
 
     @staticmethod
     @callback
@@ -239,6 +245,7 @@ class ElectricityBillingNzConfigFlow(ConfigFlow, domain=DOMAIN):
                     # of entries can share a node, e.g. to compare plans.
                     await self.async_set_unique_id(icp)
                     self._data[CONF_ICP] = icp
+                    self._registry = await async_lookup_icp(self.hass, icp)
                 self._title = user_input[CONF_NAME].strip()
                 self._data.update(
                     {
@@ -260,7 +267,7 @@ class ElectricityBillingNzConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_network(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Pick the lines company."""
+        """Pick the lines company, pre-selected from the ICP's registry record."""
         self._networks = await async_get_networks(self.hass)
         if user_input is not None:
             self._data[CONF_DISTRIBUTOR] = user_input[CONF_DISTRIBUTOR]
@@ -270,12 +277,48 @@ class ElectricityBillingNzConfigFlow(ConfigFlow, domain=DOMAIN):
             SelectOptionDict(value=key, label=network.name)
             for key, network in sorted(self._networks.items())
         ]
+        suggested = {}
+        if key := self._registry_network():
+            suggested[CONF_DISTRIBUTOR] = key
+        # A warning, not a block: the form still submits as it is.
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {}
+        poc = self._registry.poc if self._registry else None
+        node = self._settled_node()
+        if poc and node and poc.casefold() != node.casefold():
+            errors["base"] = "poc_mismatch"
+            placeholders = {"poc": poc, "node": node}
         return self.async_show_form(
             step_id="network",
-            data_schema=probatio.Schema(
-                {probatio.Required(CONF_DISTRIBUTOR): _select(options)}
+            data_schema=self.add_suggested_values_to_schema(
+                probatio.Schema(
+                    {probatio.Required(CONF_DISTRIBUTOR): _select(options)}
+                ),
+                suggested,
             ),
+            errors=errors,
+            description_placeholders=placeholders,
         )
+
+    def _registry_network(self) -> str | None:
+        """Return the bundled network the registry record names, if any."""
+        if self._registry is None or not self._registry.network:
+            return None
+        return next(
+            (
+                key
+                for key, network in self._networks.items()
+                if self._registry.network in network.participants
+            ),
+            None,
+        )
+
+    def _settled_node(self) -> str | None:
+        """Return the settled source's node, e.g. ROS0221, if it reports one."""
+        entity_id = resolve_source(self.hass, self._data[CONF_SETTLED_ENTITY])
+        state = self.hass.states.get(entity_id)
+        node = state.attributes.get("node") if state else None
+        return str(node) if node else None
 
     async def async_step_category(
         self, user_input: dict[str, Any] | None = None
@@ -289,17 +332,27 @@ class ElectricityBillingNzConfigFlow(ConfigFlow, domain=DOMAIN):
         def codes(values: Mapping[str, Any]) -> list[SelectOptionDict]:
             return [SelectOptionDict(value=c, label=c) for c in sorted(values)]
 
+        # Codes are per network: only suggest them for the registry's network.
+        suggested = {}
+        if self._registry and self._registry_network() == network.key:
+            if self._registry.price_category in network.categories:
+                suggested[CONF_PRICE_CATEGORY] = self._registry.price_category
+            if self._registry.loss_category in network.loss_categories:
+                suggested[CONF_LOSS_CATEGORY] = self._registry.loss_category
         return self.async_show_form(
             step_id="category",
-            data_schema=probatio.Schema(
-                {
-                    probatio.Required(CONF_PRICE_CATEGORY): _select(
-                        codes(network.categories)
-                    ),
-                    probatio.Required(CONF_LOSS_CATEGORY): _select(
-                        codes(network.loss_categories)
-                    ),
-                }
+            data_schema=self.add_suggested_values_to_schema(
+                probatio.Schema(
+                    {
+                        probatio.Required(CONF_PRICE_CATEGORY): _select(
+                            codes(network.categories)
+                        ),
+                        probatio.Required(CONF_LOSS_CATEGORY): _select(
+                            codes(network.loss_categories)
+                        ),
+                    }
+                ),
+                suggested,
             ),
             description_placeholders={"network": network.name},
         )

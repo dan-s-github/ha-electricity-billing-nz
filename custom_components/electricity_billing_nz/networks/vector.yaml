@@ -3,6 +3,8 @@
 # Vector bills it to retailers monthly by GXP share, so it is a retailer charge.
 distributor: vector
 name: Vector
+# Network participant codes on the Electricity Authority registry.
+participants: [VECT]
 sources:
   v2025.1: https://media.vector.co.nz/production/documents/electricitypricescheduleseffectivefrom1april2025.pdf
   v2026.1: https://media.vector.co.nz/production/documents/electricitypricescheduleseffectivefrom1april2026.pdf
