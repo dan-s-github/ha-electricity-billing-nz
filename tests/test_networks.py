@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from datetime import date
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -244,3 +245,40 @@ async def test_concurrent_loads_share_one_read(hass: HomeAssistant) -> None:
         )
     assert first is second
     assert load.call_count == 1
+
+
+async def test_cancelled_caller_does_not_cancel_shared_load(
+    hass: HomeAssistant,
+) -> None:
+    """One setup being cancelled mid-load doesn't break the others."""
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_load() -> dict:
+        started.set()
+        release.wait(5)
+        return NETWORKS
+
+    with patch(
+        "custom_components.electricity_billing_nz.networks.load_networks",
+        slow_load,
+    ):
+        cancelled = hass.async_create_task(async_get_networks(hass))
+        await hass.async_add_executor_job(started.wait, 5)
+        cancelled.cancel()
+        await asyncio.sleep(0)
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await cancelled
+        assert await async_get_networks(hass) is NETWORKS
+
+
+async def test_failed_load_is_retried(hass: HomeAssistant) -> None:
+    """A load that fails isn't cached: the next caller loads again."""
+    with patch(
+        "custom_components.electricity_billing_nz.networks.load_networks",
+        side_effect=[OSError("disk"), NETWORKS],
+    ):
+        with pytest.raises(OSError, match="disk"):
+            await async_get_networks(hass)
+        assert await async_get_networks(hass) is NETWORKS

@@ -189,30 +189,71 @@ def _section(text: str, start: str, end: str) -> str:
         return ""
 
 
+# Words that would restrict a peak definition in a way the rules don't say.
+QUALIFIER = re.compile(
+    r"day|weekend|holiday|business|except|exclud|only|\bnot\b|\bno\b",
+    re.IGNORECASE,
+)
+# The days table's wording for peak every day, holidays included.
+EVERY_DAY = "Monday to Sunday (including public holidays) in months"
+DAY_RANGE = re.compile(
+    r"\b(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day\b[^\n]{0,60}?(?:in months|$)",
+    re.MULTILINE,
+)
+# How far off the definition's column carried-on text may start.
+COLUMN_SLACK = 3
+
+
+def _check_qualifiers(line: str, match: re.Match[str], below: list[str]) -> None:
+    """
+    Raise LayoutError if a peak definition says more than its times and months.
+
+    The definition's column starts at its time, and two or more spaces
+    separate it from the next column. It may carry on below, e.g. with
+    "inclusive"; the next definition starts with a capital letter.
+    """
+    chunks = [line[match.end() :].split("  ", 1)[0].strip()]
+    column = match.start(1)
+    for following in below:
+        if PEAK_WITH_TIME.search(following):
+            break  # the next peak definition
+        start = len(following) - len(following[column - COLUMN_SLACK :].lstrip())
+        if not following.strip() or abs(start - column) > COLUMN_SLACK:
+            continue
+        chunk = following[start:].split("  ", 1)[0].strip()
+        if chunk[0].isupper() and not QUALIFIER.search(chunk):
+            break  # the next price component's description
+        chunks.append(chunk)
+    for chunk in chunks:
+        if chunk not in ("", "inclusive"):
+            msg = f"Peak definition in an unknown wording: {line.strip()!r} ({chunk!r})"
+            raise LayoutError(msg)
+
+
 def _peak_definitions(text: str) -> list[tuple[str, str, str, str]]:
     """
     Return each (start, end, first month, last month) peak definition.
 
     Only the price component definitions are read, and every peak time
     there must be in the known wording, followed by nothing but
-    "inclusive" in its column, so a qualifier such as "weekdays" isn't lost.
+    "inclusive" in its column, on its line or the lines carrying on below
+    it, so a qualifier such as "weekdays" isn't lost.
     """
     section = _section(text, "Price component definitions", "Peak and off-peak periods")
     if not section:
         msg = "No 'Price component definitions' before 'Peak and off-peak periods'"
         raise LayoutError(msg)
     definitions = []
-    for candidate in PEAK_WITH_TIME.finditer(section):
-        line_end = section.find("\n", candidate.start())
-        line = section[candidate.start() : line_end if line_end >= 0 else None]
-        match = PEAK_DEFINITION.match(line)
-        # Two or more spaces separate this column from the next.
-        rest = line[match.end() :].split("  ", 1)[0].strip() if match else ""
-        if match is None or rest not in ("", "inclusive"):
-            msg = f"Peak definition in an unknown wording: {line.strip()!r}"
-            raise LayoutError(msg)
-        start, end, first, last = match.groups()
-        definitions.append((start, end, first, last))
+    lines = section.splitlines()
+    for index, line in enumerate(lines):
+        for candidate in PEAK_WITH_TIME.finditer(line):
+            match = PEAK_DEFINITION.match(line, candidate.start())
+            if match is None:
+                msg = f"Peak definition in an unknown wording: {line.strip()!r}"
+                raise LayoutError(msg)
+            _check_qualifiers(line, match, lines[index + 1 :])
+            start, end, first, last = match.groups()
+            definitions.append((start, end, first, last))
     if not definitions:
         msg = "No peak period definitions ('-PEAK hh:mm to hh:mm for months ...')"
         raise LayoutError(msg)
@@ -237,8 +278,14 @@ def _peak_rules(text: str) -> list[dict[str, Any]]:
         msg = "No 'Peak and off-peak periods' section"
         raise LayoutError(msg)
     days = section[1][:3000]
-    if "Monday to Sunday" not in days or re.search(r"Monday to Friday|weekday", days):
-        msg = "Peak days aren't every day"
+    # The rules written apply every day, holidays included, so that's the
+    # only wording accepted: anything else needs a person.
+    ranges = {" ".join(m.group().split()) for m in DAY_RANGE.finditer(days)}
+    if ranges != {EVERY_DAY}:
+        msg = f"Peak days aren't every day: {sorted(ranges)}"
+        raise LayoutError(msg)
+    if days.lower().count("holiday") != days.count("(including public holidays)"):
+        msg = "Public holidays are treated differently somewhere"
         raise LayoutError(msg)
     rules: list[dict[str, Any]] = []
     for month in sorted(windows_by_month):
@@ -261,8 +308,13 @@ def parse_schedule(text: str, url: str) -> Schedule:
     if (version := VERSION.search(text)) is None:
         msg = "No 'Version:' line"
         raise LayoutError(msg)
+    try:
+        effective_from = datetime.strptime(effective.group(1), "%d %B %Y").date()  # noqa: DTZ007
+    except ValueError as err:
+        msg = f"Unexpected 'Effective:' date {effective.group(1)!r}"
+        raise LayoutError(msg) from err
     schedule = Schedule(
-        effective_from=datetime.strptime(effective.group(1), "%d %B %Y").date(),  # noqa: DTZ007
+        effective_from=effective_from,
         version=version.group(1),
         url=url,
     )

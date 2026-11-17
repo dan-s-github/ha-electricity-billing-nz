@@ -100,6 +100,52 @@ def test_parse_rejects_2025_layout() -> None:
             "wording",
         ),
         (("Version:  ", "Revision:"), "Version"),
+        # A qualifier on the definition's next line in its column.
+        (
+            (
+                "                                    inclusive",
+                "                                    inclusive except public holidays",
+            ),
+            "wording",
+        ),
+        (
+            (
+                "(including public holidays) in months",
+                "(excluding public holidays) in months",
+            ),
+            "public holidays",
+        ),
+        (("Effective:        1 April 2026", "Effective:        1 Apr 2026"), "date"),
+        (
+            (
+                "(including public holidays) in months",
+                "(not including public holidays) in months",
+            ),
+            "holidays",
+        ),
+        (
+            (
+                "Monday to Sunday (including public holidays) in months\n",
+                "Monday to Saturday (including public holidays) in months\n",
+            ),
+            "every day",
+        ),
+        # A capitalised restriction carried on below the definition.
+        (
+            (
+                "                                    inclusive",
+                "                                    Weekends only",
+            ),
+            "wording",
+        ),
+        # Text one column off the definition's is still read.
+        (
+            (
+                "                                    inclusive",
+                "                                   except holidays",
+            ),
+            "wording",
+        ),
         (
             (
                 "Monday to Sunday (including public holidays) in months",

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, replace
 from datetime import date
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -195,12 +197,20 @@ def load_networks(directory: Path | None = None) -> dict[str, Network]:
     return networks
 
 
+def _forget_failed_load(hass: HomeAssistant, loading: asyncio.Future[Any]) -> None:
+    """Drop a failed load, so the next caller tries again instead of re-raising."""
+    if loading.cancelled() or loading.exception() is not None:
+        hass.data.pop(DATA_NETWORKS, None)
+
+
 async def async_get_networks(hass: HomeAssistant) -> dict[str, Network]:
     """Return the bundled networks, loading them once per HA run."""
     # Keep the future, so entries set up together share one load.
     if (loading := hass.data.get(DATA_NETWORKS)) is None:
         loading = hass.data[DATA_NETWORKS] = hass.async_add_executor_job(load_networks)
-    return await loading
+        loading.add_done_callback(partial(_forget_failed_load, hass))
+    # Shielded: a cancelled caller mustn't cancel the load the others share.
+    return await asyncio.shield(loading)
 
 
 @dataclass(frozen=True)

@@ -96,8 +96,16 @@ jobs:
           REASON: ${{ steps.check.outputs.reason }}
         run: |
           title="Check Vector's pricing schedule from ${EFFECTIVE_FROM}"
-          if gh issue list --state open --search "in:title \"${title}\"" --json number --jq '.[].number' | grep -q .; then
-            echo "An issue for this schedule is already open."
+          number=$(gh issue list --state open --search "in:title \"${title}\"" --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            # Add what this run found unless the issue already says it. Read
+            # it first: grep -q in a pipe can make gh fail under pipefail.
+            existing=$(gh issue view "$number" --json body,comments --jq '.body, .comments[].body')
+            if grep -qF -- "$REASON" <<<"$existing"; then
+              echo "Issue #$number already reports this."
+            else
+              gh issue comment "$number" --body "This month's check found: ${REASON}"
+            fi
             exit 0
           fi
           gh issue create --title "$title" --body "$(cat <<EOF
@@ -117,8 +125,9 @@ jobs:
         run: |
           title="Vector's pricing schedule ${VERSIONS} fails the tests"
           sources=$(tr ' ' '\n' <<<"$SOURCES")
-          if gh issue list --state open --search "in:title \"${title}\"" --json number --jq '.[].number' | grep -q .; then
-            echo "An issue for this schedule is already open."
+          number=$(gh issue list --state open --search "in:title \"${title}\"" --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "The tests still fail this month: ${RUN}"
             exit 0
           fi
           gh issue create --title "$title" --body "$(cat <<EOF
