@@ -1,0 +1,35 @@
+price_at:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: electricity_billing_nz
+    timestamp:
+      required: true
+      example: "2026-07-15T17:00:00+12:00"
+      selector:
+        datetime:
+    spot:
+      required: true
+      example: 0.12
+      selector:
+        # No limits: the range depends on spot_unit ($/MWh reaches thousands).
+        number:
+          step: any
+          mode: box
+    spot_unit:
+      default: NZD/kWh
+      selector:
+        select:
+          options:
+            - NZD/kWh
+            - c/kWh
+            - $/MWh
+export_versions:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: electricity_billing_nz

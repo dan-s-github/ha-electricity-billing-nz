@@ -1,0 +1,907 @@
+Pricing Schedule and Policy
+Version:         v2025.1
+Effective:       1 April 2025
+
+This is the Pricing Schedule and Policy referred to in Schedule 7 of any Distributor Agreement
+(which in this schedule shall have the meaning given in the Code) entered into with Vector.
+
+
+Service charges
+
+In addition to the prices listed in this schedule, the Distributor also charges for other services
+such as reconciliation/allocation services, disconnection and reconnection services. The table
+below outlines the charges applicable to these other services. Unless stated otherwise all
+service charges below will be invoiced directly to the Trader by the Distributor and not to the
+Customer.
+
+ Fee                  Description                                                      Charge (exc. GST)
+
+                      Payable for any site visit by the Distributor requested by the
+                      Trader or Customer. Examples of site visits include, but are
+ New connection or    not limited to, energising a new Point of Connection for the
+                                                                                       $170 per site visit
+ site visit fee       first time, non-network call outs, temporary
+                      disconnection/reconnection, urgent after-hours
+                      disconnection, and vacant site disconnection/reconnection.
+
+                      This fee is payable where consumption data does not
+                      comply with the requirements of the relevant agreement in
+ Late, incorrect or
+                      respect of which this Pricing Schedule and Policy applies. It
+ incomplete
+                      will be charged based on the actual time spent by a billing      $110 per hour
+ consumption data
+                      analyst to review, correct, validate and reconcile the
+ fee
+                      information and/or system time to bill or rebill the corrected
+                      or amended data.
+
+
+All non-Network fault work and Trader or Customer services not listed above will be charged to
+the Trader on a time and materials basis at market prices.
+
+
+Electricity Network Loss Factors
+
+In accordance with clause 6 of any Distributor Agreement entered into with Vector, the
+Distributor will calculate Loss Factors in accordance with the Loss Factor guidelines, if such
+guidelines are available. Losses and Loss Factors may be reviewed and amended by Vector
+from time to time, on reasonable notice to the Trader, to ensure that they reflect unaccounted for
+electricity on the Network.
+
+
+
+
+                                                      1
+Pricing schedule
+Electricity Distribution Network
+
+Applicable from 1 April 2025
+
+
+Vector owns the network lines that deliver power to
+Aucklanders, from Wellsford to Papakura. The network
+consists of more than 19,000kms of overhead lines and
+underground cables.
+This schedule describes Vector’s standard prices for
+providing electricity Distribution Services in respect of
+Customers on the Northern and Auckland electricity
+distribution networks, where the Customer’s Trader is a
+party to a Distributor Agreement entered into with Vector.
+The network that Customers are supplied from is determined
+by Vector from time to time based on the physical location
+of the Point of Connection of the Customer’s Electrical
+Installation. The approximate areas covered by the Northern
+and Auckland electricity distribution networks are shown in
+the adjacent map.
+
+
+
+
+                                                              2
+Prices for residential and general Customers (excluding GST)
+                                                                                                                               Volume   Volume
+                                                                                                Volume    Volume    Volume                         Volume
+                                                                             Daily    Daily                                    summer    winter
+                                                                                                anytime   anytime   off-peak                      injection
+                             Price          Price                                                                                peak     peak
+ Customer                                                  Price Category
+                             Category       Category
+ type                                                      code(s)                    $/day
+                             type           description                      $/day               $/kWh     $/kWh     $/kWh      $/kWh    $/kWh      $/kWh
+                                                                                     /fitting
+                                                                            -FIXD    -FIXD       -24UC     -AICO     -OFPK      -PEAK   -PEAK        -INJT
+                                                           ARHLC            0.7500                                   0.0444    0.0444   0.1575     0.0000
+                                            Controlled
+                                                           WRHLC            0.7500                                   0.0454    0.0454   0.1585     0.0000
+
+
+
+
+     Residential -low user
+                             Time of use
+                                            DER            ARHLD, WRHLD     0.7500                                   0.0381    0.0381   0.1512     0.0000
+                                            Uncontrolled   ARHLU, WRHLU     0.7500                                   0.0454    0.0454   0.1585     0.0000
+                             Anytime                       ARNLC            0.7500                        0.0632                                   0.0000
+                             (Closed to     Controlled
+                             half hourly                   WRNLC            0.7500                        0.0642                                   0.0000
+                             (HH) meters,
+                             except by      Uncontrolled   ARNLU, WRNLU     0.7500              0.0642                                             0.0000
+                             exemption)
+                                                           ARHSC            1.7253                                   0.0000    0.0000   0.1131     0.0000
+                                            Controlled
+
+
+
+
+     Residential -standard
+                                                           WRHSC            1.7453                                   0.0000    0.0000   0.1131     0.0000
+                             Time of use
+                                            DER            ARHSD, WRHSD     1.5853                                   0.0000    0.0000   0.1131     0.0000
+                                            Uncontrolled   ARHSU, WRHSU     1.7453                                   0.0000    0.0000   0.1131     0.0000
+                             Anytime                       ARNSC            1.7253                        0.0188                                   0.0000
+                             (Closed to     Controlled
+                             HH meters,                    WRNSC            1.7453                        0.0188                                   0.0000
+                             except by
+                             exemption)     Uncontrolled   ARNSU, WRNSU     1.7453              0.0188                                             0.0000
+
+                                            General        ABSH, WBSH       2.1443                                   0.0000    0.0000   0.1131     0.0000
+                             Time of use
+                                            DER            ABSHD, WBSHD     1.9843                                   0.0000    0.0000   0.1131     0.0000
+
+
+     General
+                             Anytime
+                             (Closed to
+                             HH meters,     General        ABSN, WBSN       2.1443              0.0188                                             0.0000
+                             except by
+                             exemption)
+                             Unmetered      Unmetered      ABSU, WBSU                0.0754     0.0273                                             0.0000
+
+                                                                                       3
+Prices for commercial Customers (excluding GST)
+
+                                                                                                            Excess        Power     Volume
+                                                         Daily   Volume anytime    Capacity    Demand
+                                                                                                           demand         factor   injection
+                 Price Category
+ Customer type                     Price Category code
+                 description                             $/day           $/kWh    $/kVA/day   $/kVA/day   $/kVA/day   $/kVAr/day     $/kWh
+
+                                                         -FIXD           -24UC      -CAPY       -DAMD       -DEXA        -PWRF        -INJT
+
+                                   ALVT                   4.76           0.0156     0.0686      0.1602                   0.3530     0.0000
+                 Time of use
+                                   WLVH                  13.52           0.0089     0.0686      0.1602                   0.3530     0.0000
+
+                                   ALVTS                  4.76           0.0156     0.0686      0.1602                   0.0000     0.0000
+                 Time of use,
+                 approved solar
+                                   WLVHS                 13.52           0.0089     0.0686      0.1602                   0.0000     0.0000
+ Low voltage
+                                   ALVTD                  4.76           0.0156     0.0686      0.1602      0.0000       0.3530     0.0000
+                 Time of use,
+                 approved DER
+                                   WLVHD                 13.52           0.0089     0.0686      0.1602      0.0000       0.3530     0.0000
+
+                 Non time of use   ALVN                   4.76           0.0514     0.0686                                          0.0000
+                 (Closed, except
+                 by exemption)     WLVN                   7.18           0.0303     0.0686                                          0.0000
+
+                                   ATXT                   4.76           0.0156     0.0639      0.1602                   0.3530     0.0000
+                 Time of use
+                                   WTXH                  13.52           0.0089     0.0639      0.1602                   0.3530     0.0000
+
+                                   ATXTS                  4.76           0.0156     0.0639      0.1602                   0.0000     0.0000
+                 Time of use,
+                 approved solar
+                                   WTXHS                 13.52           0.0089     0.0639      0.1602                   0.0000     0.0000
+ Transformer
+                                   ATXTD                  4.76           0.0156     0.0639      0.1602      0.0000       0.3530     0.0000
+                 Time of use,
+                 approved DER
+                                   WTXHD                 13.52           0.0089     0.0639      0.1602      0.0000       0.3530     0.0000
+
+                 Non time of use   ATXN                   4.76           0.0514     0.0639                                          0.0000
+                 (Closed, except
+                 by exemption)     WTXN                   7.18           0.0303     0.0639                                          0.0000
+
+
+                                                                    4
+                                                                                                                                   Excess        Power     Volume
+                                                                      Daily    Volume anytime          Capacity       Demand
+                                                                                                                                  demand         factor   injection
+                    Price Category
+ Customer type                         Price Category code
+                    description                                       $/day             $/kWh         $/kVA/day      $/kVA/day   $/kVA/day   $/kVAr/day     $/kWh
+
+                                                                     -FIXD              -24UC            -CAPY         -DAMD       -DEXA        -PWRF        -INJT
+
+                                       AHVT                            4.76             0.0156           0.0621        0.1602      0.8640       0.3530     0.0000
+                    Time of use
+                                       WHVH                           13.52             0.0089           0.0621        0.1602      0.8640       0.3530     0.0000
+
+                                       AHVTS                           4.76             0.0156           0.0621        0.1602      0.8640       0.0000     0.0000
+                    Time of use,
+                    approved solar
+                                       WHVHS                          13.52             0.0089           0.0621        0.1602      0.8640       0.0000     0.0000
+ High voltage
+                                       AHVTD                           4.76             0.0156           0.0621        0.1602      0.0000       0.3530     0.0000
+                    Time of use,
+                    approved DER
+                                       WHVHD                          13.52             0.0089           0.0621        0.1602      0.0000       0.3530     0.0000
+
+                    Non time of use    AHVN                            4.76             0.0514           0.0621                                            0.0000
+                    (Closed, except
+                    by exemption)      WHVN                            7.18             0.0303           0.0621                                            0.0000
+
+                    Time of use        AZST, WZSH                      4.76             0.0070           0.1560        0.0295      0.8640       0.3530     0.0000
+ Zone substation
+                    Time of use,
+                                       AZSTS, WZSHS                    4.76             0.0070           0.1560        0.0295      0.8640       0.0000     0.0000
+                    approved solar
+
+                    Time of use        ASTT, WSTH                      4.76             0.0070           0.1240        0.0295      0.8640       0.3530     0.0000
+ Sub-
+ transmission       Time of use,
+                                       ASTTS, WSTHS                    4.76             0.0070           0.1240        0.0295      0.8640       0.0000     0.0000
+                    approved solar
+
+Note: Price Categories for Solar and DER are for Vector-approved ICPs only. Conditions apply, see pages 19 and 20.
+
+
+
+
+                                                                                    5
+Prices for transmission (excluding GST)
+                                                                                                        Monthly invoice amount
+                                                                           Monthly
+    Network              GXP code         GXP name                                                      Trader and direct billed customers’ Grid Exit Point (GXP) percentage
+                                                                   $/month per 1/1000%                  shares i.e. quantities are calculated using historic GXP total energy
+                         ALB              Albany                                    19.5965             usage (year to September 2024). This is based on the Trader ICP level
+                                                                                                        submissions to Vector in EIEP1 and EIEP3 format, and ICPs are
+                         HEN              Henderson                                  9.9849             attributed to Traders and GXPs as at 31 December 2024 from registry12
+                                                                                                        based data. The monthly invoice amount is calculated as:
+                         HEP              Hepburn Road                              13.5523
+
+    Northern             LFD              Lichfield                                  0.9465              Customer’s GXP percentage share x GXP price for transmission x 100,000
+
+                         SVL              Silverdale                                 8.9081
+                                                                                                        Wash-up amount
+                         WEL              Wellsford                                  3.5847
+                                                                                                        As a Traders or direct bill customer’s consumption for each month can
+                         WRD              Wairau Road                                8.1077
+                                                                                                        change, Vector will recalculate the Traders and direct bill customers
+                         HEP              Hepburn Road                              13.5523             quantity for each consumption month using the actual volumes reported
+                                                                                                        for the consumption month. Date of ICP attribution to Trader for wash-
+                         HOB              Hobson Street                              8.4321             up calculations will be the final day of each consumption month. These
+                                                                                                        wash-up amounts will be accumulated for the pricing year and invoiced
+                         MNG              Mangere                                   12.9382
+                                                                                                        or credited to Traders within four months following the end of the pricing
+                         OTA              Otahuhu                                    6.1944             year.
+
+    Auckland             PAK              Pakuranga                                 13.5745             Transpower adjustment events3
+                         PEN              Penrose                                   43.3979             Under the Code we are obliged to notify Transpower of adjustment
+                         ROS              Mount Roskill                             14.4917
+                                                                                                        events and provide information to enable Transpower to calculate the
+                                                                                                        adjustment event amount. Traders are required to provide the necessary
+                         TAK              Takanini                                  10.7585             information for the purpose of adjustment event amounts, including but
+                                                                                                        not limited to the capacity of consuming plant.
+                         WIR              Wiri                                      11.4765
+
+
+                                                                                                        3 Please refer to Information sheet on treatment of new customers and Information sheet on
+2   The registry is a national database that contains information on every point of connection on       benefit-based charges: Adjustments v3 for further explanation.
+    local and embedded networks to which a consumer or embedded generator is connected.
+
+
+
+                                                                                                    6
+Loss Factors                                                                              Auckland Network
+
+For the purpose of calculating the Distributor’s charges for Distribution                                                           Loss Category   Loss Category
+Services, unless otherwise specified, the Loss Factors detailed in this                   Customer type   Price Category                 code           code
+section do not need to be applied to the electricity measured at each                                                                (LV metered)   (HV metered)
+Customer’s Point of Connection. These tables show the distribution loss                                   ARNLC, ARNLU, ARHLC,
+percentages and Loss Factors for each Loss Category code and the Loss                                     ARHLD, ARHLU, ARNSC,
+                                                                                          Residential                                  VECA1           VECA1
+Category codes for each Price Category depending on metering                                              ARNSU, ARHSC, ARHSD,
+configuration.                                                                                            ARHSU
+
+                                                                                          General         ABSU, ABSN, ABSH, ABSHD      VECA1           VECA1
+ Loss Category   Distribution losses with respect    Distribution Loss Factors with
+ code                   to the GXP meter            respect to the Customer meter                         ALVN                         VECA1           VECA1
+ VECA1                       5.06%                             1.0533                                     ATXN, AHVN                   VECA2           VECA4
+ VECA2                       3.63%                             1.0377                     Commercial      ALVT, ATXT, AHVT, AZST,
+                                                                                                          ASTT, ALVTS, ATXTS,
+ VECA3                       3.63%                             1.0377                                                                  VECA3           VECA4
+                                                                                                          AHVTS, AZSTS, ASTTS,
+ VECA4                       1.12%                             1.0113                                     ALVTD, ATXTD, AHVTD
+
+ VECW1                       5.31%                             1.0561
+ VECW2                       4.01%                             1.0418                     Northern Network
+ VECW3                       4.01%                             1.0418
+                                                                                                                                         Loss
+                                                                                                                                                    Loss Category
+ VECW4                       2.19%                             1.0224                                                                  Category
+                                                                                          Customer type   Price Category                                code
+                                                                                                                                         code
+                                                                                                                                                    (HV metered)
+                                                                                                                                     (LV metered)
+                                                                                                          WRNLC, WRNLU, WRHLC,
+                                                                                                          WRHLD, WRHLU, WRNSC,
+                                                                                          Residential                                  VECW1          VECW1
+                                                                                                          WRNSU, WRHSC, WRHSD,
+                                                                                                          WRHSU
+                                                                                          General         WBSU, WBSN, WBSH, WBSHD      VECW1          VECW1
+                                                                                                          WLVN                         VECW1          VECW1
+                                                                                                          WTXN, WHVN                   VECW2          VECW4
+                                                                                          Commercial      WLVH, WTXH, WHVH, WZSH,
+                                                                                                          WSTH, WLVHS, WTXHS,
+                                                                                                                                       VECW3          VECW4
+                                                                                                          WHVHS, WZSHS, WSTHS,
+                                                                                                          WLVHD, WTXHD, WHVHD
+
+
+
+                                                                                      7
+Price Category codes                                                                               Residential
+
+    First letter of code                         Network
+                                                                                                   The following condition applies to the residential Price Categories:
+
+    A                                            Auckland                                                    •   The Customer may only change between low user and standard
+                                                                                                                 Price Categories once in a 12-month period.
+    W                                            Northern
+                                                                                                   Residential time of use
+
+                                                                                                   The table below sets out the eligibility criteria for residential time of use
+Customer definitions                                                                               Price Categories. To be eligible for a particular Price Category, a
+                                                                                                   residential Customer must meet the criteria in both the applicable row and
+    Customer type          Definition                                                              column. Vector expects all Traders to reconcile with Vector on these Price
+                                                                                                   Categories unless a specific exemption has been provided.
+                           The Customer’s Point of Connection is for a home, not
+                           normally used for any business activity, and not a building
+                                                                                                                                                                     Low user        Standard
+    Residential            ancillary to a person’s principal place of residence (for
+                           example, a shed, pump or garage) that is separately                                                                                       Connection
+                           metered                                                                                                                                   is at a
+                                                                                                                                                                                     No
+                                                                                                                        Customer has metering capable of             Customer’s
+                                                                                                       All                                                                           additional
+                           The Customer is not a residential Customer and has a                                         recording half hourly data                   principal
+    General                                                                                                                                                                          criteria
+                           capacity less than or equal to 69kVA                                                                                                      place of
+                                                                                                                                                                     residence
+                           The Customer is not a residential Customer and has a                                                                                        ARHLU,          ARHSU,
+    Commercial                                                                                         Uncontrolled     No additional criteria
+                           capacity greater than 69kVA                                                                                                                 WRHLU           WRHSU
+
+                                                                                                                        Customer has load than can be
+                                                                                                                        connected to or respond to Vector’s            ARHLD,          ARHSD,
+                                                                                                       DER
+Eligibility criteria for Price Categories                                                                               distributed energy resources                   WRHLD           WRHSD
+                                                                                                                        management system (DERMS)
+Vector will allocate Price Categories to Customers. Where a Customer                                                    Customer is not eligible for the DER
+meets the eligibility criteria for more than one Price Category, the Trader                                             price category but has an electrical           ARHLC,          ARHSC,
+may request the allocation of an alternative eligible Price Category to a                              Controlled4
+                                                                                                                        hot water cylinder5 connected to               WRHLC           WRHSC
+Customer.                                                                                                               Vector’s Load Control System
+
+
+
+
+4   For Customers in these Price Categories with load connected to Vector’s Load Control           5   An electrical hot water cylinder must be in excess of 50 litres but may be substituted with
+    System, Vector may control this load at any time for a maximum of 5 hours in any 24 hour           fittings of a similar rating and load profile, provided it is approved at Vector’s discretion.
+    period.
+
+
+                                                                                               8
+ICPs shown on the Electricity Authority Registry that indicate they have a                         Residential non-time of use
+time of use meter are required to be in the applicable time of use Price
+Category. In the case where peak and off-peak usage is not specified in                            The table below sets out the eligibility criteria for residential non-time of
+the submitted EIEP files, Vector’s billing system will default to peak.                            use Price Categories. To be eligible for a particular Price Category, a
+                                                                                                   residential Customer must meet the criteria in both the applicable row and
+Exemptions will be provided at the sole discretion of Vector. Traders are                          column and an exemption from the residential time of use Price
+required to request an exemption for where the interval data is not                                Categories must have been provided by Vector.
+obtained e.g. for persistent metering data exceptions including non-
+interval capable or non-communicating meters via the standard EIEP8                                                                                      Low user              Standard
+process with an appropriate reason detailed. Exemptions will not be
+                                                                                                                                                         Connection is at
+granted to ICPs with a time of use meter unless evidence of a persistent                                                Vector has provided
+                                                                                                                                                         a Customer’s          No additional
+non-communicating meter is provided.                                                                   All              exemption from time of
+                                                                                                                                                         principal place       criteria
+                                                                                                                        use Price Categories
+                                                                                                                                                         of residence
+                                                                                                                                                             ARNLU,                ARNSU,
+                                                                                                                                                             WRNLU                 WRNSU
+                                                                                                                                                         (Closed to HH         (Closed to HH
+                                                                                                       Uncontrolled     No additional criteria
+                                                                                                                                                         meters, except        meters, except
+                                                                                                                                                         by exemption)         by exemption)
+
+
+                                                                                                                                                             ARNLC,                ARNSC,
+                                                                                                                        Customer has an                      WRNLC                 WRNSC
+                                                                                                                        electrical hot water
+                                                                                                                                                         (Closed to HH         (Closed to HH
+                                                                                                       Controlled6      cylinder7 connected to
+                                                                                                                                                         meters, except        meters, except
+                                                                                                                        Vector’s Load Control
+                                                                                                                                                         by exemption)         by exemption)
+                                                                                                                        System
+
+
+
+
+6   For Customers in these Price Categories with load connected to Vector’s Load Control           7   An electrical hot water cylinder must be in excess of 50 litres but may be substituted with
+    System, Vector may control this load at any time for a maximum of 5 hours in any 24 hour           Fittings of a similar rating and load profile, provided it is approved at Vector’s discretion.
+    period.
+
+
+                                                                                               9
+General                                                                                                  interval capable or non-communicating meters via the standard EIEP8
+                                                                                                         process with an appropriate reason detailed. Exemptions will not be
+The table below sets out the eligibility criteria for general Price                                      granted to ICPs with a time of use meter unless evidence of a persistent
+Categories. Vector expects all Traders to reconcile Customers with a                                     non-communicating meter provided.
+metered Point of Connection with Vector on time of use Price Categories
+unless a specific exemption has been provided.
+
+                      Price Category
+    Type                                    Eligibility criteria
+                      codes
+                                            Customer’s point of connection:
+                                              •    does not have a meter measuring
+    Unmetered         ABSU, WBSU                   consumption;
+                                              •    has a capacity less than 1kVA; and
+                                              •    consists of fixed wired equipment with
+                                                   a predictable annual electricity usage8
+                      ABSN, WBSN
+                                            Customer has a metered Point of
+    Anytime           (Closed to HH         Connection and Vector has provided
+    (exemption)       meters, except        exemption from time of use Price Categories
+                      by exemption)
+                                            Customer has metering capable of recording
+    Time of use       ABSH, WBSH
+                                            half hourly data
+                                            Customer has load that can communicate
+                      ABSHD,                with and respond to Vector’s distributed
+    DER
+                      WBSHD                 energy resources management system
+                                            (DERMS)
+
+
+ICPs shown on the Electricity Authority Registry that indicate they have a
+time of use meter are required to be in the applicable time of use price
+category. In the case where peak and off-peak usage is not specified in
+the submitted EIEP files, Vector’s billing system will default to peak.
+
+Exemptions will be provided at the sole discretion of Vector. Traders are
+required to request an exemption for where the interval data is not
+obtained e.g. for persistent metering data exceptions including non-
+
+8   Where any of these criteria are not met, the Customer will be required to install a meter and
+    will be placed on the appropriate metered Price Category.
+
+
+                                                                                                    10
+Commercial
+
+The following table sets out the eligibility criteria for Price Categories for commercial Customers. To be eligible for a particular Price Category, a commercial
+Customer must meet the criteria in both the applicable row and column.
+
+                                                                                        Time of use                                           Non time of use 9 – Closed, except by exemption
+                                                                                                                                              Customer doesn’t have metering capable of
+                                                                                        Customer has metering capable of recording
+                                                                                                                                              recording half hourly data and the capacity of
+                                                                                        half hourly data which contains at least two of
+                                                                                                                                              Customer’s connection is less than or equal to
+                                                                                        the following channels: kWh, kVArh, kVAh
+                                                                                                                                              345 kVA
+
+                         Customer is connected to Vector’s low voltage (400V                        ALVT, ALVTD, ALVTS,                                           ALVN, WLVN
+    Low voltage
+                         three phase or 230V single phase) network                                  WLVH, WLVHD, WLVHS                                    (Closed, except by exemption)
+                         Customer’s low voltage (400V three phase or 230V                          ATXT, ATXTD, ATXTS,                                            ATXN, WTXN
+    Transformer          single phase) network is supplied directly from
+                         transformers owned by Vector                                              WTXH, WTXHD, WTXHS                                     (Closed, except by exemption)
+
+                         Customer is supplied directly from Vector’s high                           AHVT, AHVTD, AHVTS                                           AHVN, WHVN
+    High voltage
+                         voltage (11kV or higher) network                                          WHVH, WHVHD, WHVHS                                     (Closed, except by exemption)
+                         Customer is connected directly from a Vector zone
+                         substation and/or have paid for their connection                               AZST, AZSTS
+    Zone substation                                                                                                                                                 Not available
+                         assets from Vector’s high voltage (11kV or higher)                             WZSH, WZSHS
+                         network
+                         Customer is connected directly from a Vector sub-
+    Sub-                 transmission (11kV higher) network and/or have paid                            ASTT, ASTTS
+                                                                                                                                                                    Not available
+    transmission         for their connection assets from Vector’s high voltage                         WSTH, WSTHS
+                         (11kV or higher) network
+
+
+
+
+9    The non-time of use Price Categories (ALVN, ATXN, AHVN, WLVN, WTXN & WHVN) are                       connection or meter on these sites after 1 April 2022 will be required to be time of use meters
+     only available for ICPs that were on these Price Categories with a non-time of use meter as          and the ICP will be moved to a time of use Price Category.
+     at 31 March 2022. These categories are otherwise closed. Any changes made to the
+
+
+                                                                                                   11
+To aid with interpretation of the eligibility criteria for commercial Price Categories, the following table presents as an example the Price Categories available
+to low voltage commercial Customers on the Auckland network for different capacities and metering configurations.
+
+                                             Customer has metering capable of recording half hourly data which contains at
+                                             least two of the following channels: kWh, kVArh, kVAh
+                                                        Yes                                      No
+
+ Customer    Less than or equal to 345kVA      ALVT, ALVTS, ALVTD              ALVN 9 (Closed, except by exemption)
+ capacity    Greater than 345kVA               ALVT, ALVTS, ALVTD                           Not available
+
+
+
+
+                                                                                 12
+Price component definitions                                                                                Price
+                                                                                             Description   component   Applies to
+                Price                                                                                      code(s)
+ Description    component       Applies to                                                                             The difference between the anytime maximum kVA
+                code(s)                                                                                                demand (twice the maximum kVAh half hourly
+                                The number of days each Customer’s point of                                            reading) and the nominated capacity in any one
+ Daily          -FIXD                                                                        Excess                    month, where the Customer’s anytime maximum
+                                connection is Energised10                                                  -DEXA
+                                                                                             demand                    demand is greater than the nominated capacity, or
+                -24UC,                                                                                                 for the DER price categories, the difference
+ Volume                         All electricity distributed to each Customer
+                -AICO                                                                                                  between the anytime maximum kVA demand and
+                                                                                                                       the customer’s maximum site capacity.
+ Volume                         Electricity distributed to each Customer during off-
+                -OFPK
+ off-peak                       peak periods                                                 Power
+                                                                                                           -PWRF       The power factor amount
+                                                                                             factor
+ Volume
+                                Electricity distributed to each Customer during peak
+ summer         -PEAK
+                                periods for months October to March inclusive
+ peak                                                                                       Peak and off-peak periods for residential and general time of use
+ Volume                                                                                     Price Categories
+                                Electricity distributed to each Customer during peak
+ winter         -PEAK
+                                periods for months April to September inclusive
+ peak                                                                                        Period type     Days                            Times             Period numbers
+ Volume
+                -INJT
+                                All electricity injected into the Network by each                            Monday to Friday             07:00 – 11:00           15 – 22
+ injection                      Customer                                                     Peak            (including public
+                                                                                                             holidays)                    17:00 – 21:00           35 – 42
+                                The capacity of each Customer’s connection to
+                                Vector’s Network or in the case of HV or DER price                           Monday to Friday             11:00 – 17:00           23 – 34
+ Capacity       -CAPY
+                                categories the customer’s nominated capacity as                              (including public
+                                agreed to by Vector                                                          holidays)                    21:00 – 07:00           43 – 14
+                                                                                             Off-peak
+                                The average of each Customer’s ten highest kVA                               Saturday and
+                                demands (twice the kVAh half hourly reading)                                                                All times            All periods
+                                                                                                             Sunday
+ Demand         -DAMD           between 08:00 and 20:00 (time periods 17 to 40) on
+                                weekdays including public holidays in any one
+                                month                                                       The following chart shows the times on weekdays to which the peak and
+                                                                                            off-peak volume prices apply for the half hourly Price Categories:
+
+                                                                                                                                 21:00                              Weekdays
+
+                                                                                                                                                    Off-peak
+
+                                                                                                                                    Peak
+10 Except for the daily prices ABSU-FIXD and WBSU-FIXD, which apply to the number of
+   days each Customer’s unmetered Point of Connection or Fitting is Energised.                                           17:00                                     07:00
+                                                                                                                                         Off-peak       Peak
+
+                                                                                       13
+
+                                                                                                                                                      11:00
+Missing interval data and persistent metering issues                              Power factor prices
+
+In instances of missing interval data, Traders are to use good industry           Vector’s distribution code requires Customers to maintain a power factor
+practice to estimate missing data and the standard wash-up process to             of greater than 0.95 lagging. If the Customer’s power factor is below 0.95
+adjust estimated to actual data as appropriate. Vector expects all Traders        lagging, Vector may apply power factor prices. Where the Customer’s
+to reconcile with Vector using aggregated half hourly data unless there           Metering Equipment does not record power factor, Vector may install
+are persistent metering issues.                                                   power factor monitoring equipment and monitor the Customer’s power
+                                                                                  factor.
+In instances of persistent metering issues for residential and general
+Customers, Traders are to use good industry practice in identifying               The power factor amount is determined each month where a Customer’s
+affected ICPs and request an exemption for persistent metering data               power factor is less than 0.95 lagging. This power factor amount (kVAr)
+exceptions including non-interval capable or non-communicating meters             is represented by twice the largest difference between the Customer’s
+via the standard EIEP8 process with an appropriate reason detailed.               kVArh recorded in any one half-hour period and the kWh demand divided
+                                                                                  by three recorded in the same half-hour period, during each month. The
+                                                                                  price is applicable between 08:00 and 20:00 (time periods 17 to 40) on
+Consumption for the unmetered Price Category (ABSU, WBSU)                         weekdays including public holidays.
+
+Consumption for non-streetlight unmetered
+Customers is determined by Vector based                       Night hours         Commercial ICPs with solar installations
+                                                 Month
+on load profile and fitting input wattages.                       per day
+                                                 January            9.61
+                                                                                  Solar panels can cause issues in the power factor calculation but do not
+Consumption for streetlight unmetered                                             necessarily cause detrimental impacts on the network. Subject to Vector’s
+Customers is determined by multiplying the       February          10.57          discretion and assessment, a commercial ICP with solar installation on a
+input wattage and ballast losses of each         March             11.61          time of use Price Category can be assigned to the commercial solar Price
+fitting in a database administered by Vector,                                     Categories with no power factor prices.
+with the load factor, the number of days in      April             12.87
+each month and the night hours per day           May               13.81          An ICP must file the required information requested during connection
+stated in the adjacent table:                                                     including the Certificate of Compliance to identify itself as a solar ICP. It
+                                                 June              14.33
+                                                                                  will be subject to Vector’s engineering and billing teams’ reviews to
+A minimum load factor of 1.1 is applied to the   July              14.13          assess if the poor power factor is caused by the solar installation or if it is
+input wattage for non-streetlight appliances     August            13.29          a genuine power factor issue.
+and 1.0 for streetlight appliances.
+                                                 September         12.17
+                                                 October           11.00
+                                                 November           9.93
+                                                 December           9.32
+
+
+
+                                                                             14
+Commercial ICPs with distributed energy resources (DERs)
+
+Vector’s commercial DER price categories allow low voltage, transformer
+and high voltage connections to nominate a minimum guaranteed
+capacity (billed capacity) that is always available and the maximum site
+capacity that may be made available with integration to Vector’s DERMS.
+Minimum guaranteed capacity and maximum site capacity will be subject
+to Vector’s engineering team’s review and approval. It is at Vector’s
+discretion how many customers are allowed annually to be added to each
+DER price category. Please refer to page 20 for the application form.
+
+A DER Customer must apply for and enter into a DERMS agreement with
+Vector which is applicable to the site and includes the following
+commitments:
+
+   •   To pay for connection assets as required for integration with
+       Vector’s DERMS.
+   •   Communicate with and respond to Vector’s DERMS.
+   •   Agree to operational parameters that are applicable to the
+       connection, such as a minimum guaranteed capacity, maximum
+       site capacity and a fallback profile (allowable capacity during
+       DERMS system communication failure or outage).
+   •   To have the ability to manage load according to the DERMS
+       agreement.
+
+
+
+
+                                                                           15
+Customer capacity                                                                 The following conditions apply to the AHVT, AZST, ASTT, AHVTS,
+                                                                                  AZSTS, ASTTS, WHVH, WZST, WSTH, WHVHS, WZSTS and WSTHS
+ Price Category               Capacity charging basis
+                                                                                  Price Categories:
+
+ All except AHVT, AZST,                                                              •   The nominated capacity may only be changed once in each 12
+ ASTT, AHVTS, AZSTS,          The nearest standard capacity of each                      month period ending on 31 March each year or at Vector’s
+ ASTTS, WHVH, WZST,           Customer’s point of connection as determined               discretion;
+ WSTH, WHVHS, WZSTS,          by Vector.                                             •   Nominated capacities must reasonably estimate the capacity
+ WSTHS                                                                                   requirement of each high voltage Customer connected to Vector’s
+                                                                                         network;
+ ALVTD, ATXTD, AHVT, AZST,                                                           •   For a back-up Point of Connection, the nominated capacity may
+ ASTT, AHVTS, AZSTS,
+ ASTTS, WLVHD, WTXHS,
+                              Capacity nominated by the Trader or                        be zero and must have a primary Point of Connection, with a non-
+                              Customer.                                                  zero nominated capacity;
+ WHVH, WZST, WSTH,
+ WHVHS, WZSTS, WSTHS                                                                 •   Vector does not guarantee the availability of increased nominated
+                                                                                         capacity at any time; and
+                                                                                     •   The application of excess demand prices does not imply or
+The following conditions apply to all Price Categories:                                  guarantee the availability of increased nominated capacity above
+                                                                                         the Customer’s existing nominated capacity.
+   •    Vector may require the Customer’s demand not to exceed the
+        capacity of their Point of Connection at any time;
+   •    Changes to the capacity of the Customer’s Point of Connection
+        may be requested by the Trader;
+   •    Vector may pass some or all of the costs associated with the
+        change in capacity on to the Trader (including removal of
+        stranded assets such as transformers); and
+   •    Changes to the Customer’s capacity are subject to the agreement
+        of Vector and the availability of spare capacity on Vector’s
+        Network and may be subject to additional charges (such as
+        capital contributions).
+
+The following condition applies to all Price Categories except AHVT,
+AZST, ASTT, AHVTS, AZSTS, ASTTS, WHVH, WZST, WSTH, WHVHS,
+WZSTS and WSTHS :
+
+   •    Any change to the Customer’s capacity requires the current
+        limiting device (such as a fuse or transformer) to be changed by
+        Vector to the nearest standard capacity.
+
+
+
+                                                                             16
+Extent of prices                                                                    For commercial Customers, where a half hourly meter is fitted and the
+                                                                                    Customer’s Price Category requires half hourly data, the Customer’s
+Vector’s prices published in this schedule relate to the cost of owning,            Trader must submit half hourly consumption information. Half hourly data
+operating and maintaining the distribution network as it currently exists           provided by the Trader must contain at least two of the following
+but do not include amongst other things, energy charges for the electricity         channels: kWh, kVArh and kVAh.
+Customers use, metering equipment charges, Load Control Equipment
+located at the Point of Connection to the Network, the cost of reading              The following table shows the EIEP file type required to be submitted to
+meters and the cost of Customer Electrical Installations or Fittings.               Vector for each Price Category.
+
+In order for Vector to supply any new or changed Distribution Service,               Customer      Price                                           EIEP
+                                                                                                                   Price Category
+including but not limited to; changes to Service Standards, Distributed              type          Category type                                   file type
+Generation, the connection to the Network of additional Points of                                                  ARHLC, ARHLD, ARHLU, ARHSC,
+Connection and the modification, increased capacity, relocation or                                 Time of use     ARHSD, ARHSU, WRHLC, WRHLD,     EIEP1
+removal of current Points of Connection, Vector may apply non-standard               Residential                   WRHLU, WRHSC, WRHSD, WRHSU
+prices other than those outlined in this schedule, or require a capital                                            ARNLC, ARNLU, ARNSC, ARNSU,
+                                                                                                   Exemption                                       EIEP1
+contribution on a case-by-case basis.                                                                              WRNLC, WRNLU, WRNSC, WRNSU
+                                                                                                   Unmetered       ABSU, WBSU                      EIEP1
+Should Vector forecast a potential price breach under the regulated price
+                                                                                     General       Time of use     ABSH, WBSH, ABSHD, WBSHD        EIEP1
+path, then Vector may provide a refund or rebate of electricity distribution
+charges directly to the Trader(s) to avoid such a breach.                                          Exemption       ABSN, WBSN                      EIEP1
+                                                                                                   Non time of     ALVN, ATXN, AHVN,
+                                                                                                                                                   EIEP1
+All prices are exclusive of GST.                                                                   use             WLVN, WTXN, WHVN
+                                                                                                                   ALVT, ATXT, AHVT, AZST, ASTT
+                                                                                                                   WLVH, WTXH, WHVH, WZST, WSTH
+Provision of billing information                                                     Commercial                    ALVTS, ATXTS, AHVTS, AZSTS,
+                                                                                                   Time of use     ASTTS, WLVHS, WTXHS, WHVHS,     EIEP3
+                                                                                                                   WZSHS, WSTHS
+The Customer’s Trader must provide Vector with consumption data for
+                                                                                                                   ALVTD, ATXTD, AHVTD, WLVHD,
+each Customer and for each price as described in this schedule.
+                                                                                                                   WTXHD, WHVHD
+
+Where more than one meter at a Point of Connection is in use, but a
+single volume price applies, consumption data must be aggregated by
+the Trader before submitting to Vector.
+
+For residential and general Customers, where a half hourly meter is fitted,
+consumption data must be aggregated by the Trader to match the
+appropriate prices and time periods before submitting the data to Vector.
+
+
+
+
+                                                                               17
+Vector electricity distribution networks
+High Voltage / Zone substation / Sub-transmission
+nominated capacity request form
+Please provide the following information and send to vector.billing@vector.co.nz or directly to
+your Vector account manager.
+
+
+ Business name:
+
+ Contact person:
+
+ Connection network:         Auckland / Northern
+
+ Connection address:
+
+
+
+
+ Email address:
+
+ Phone number:
+
+ ICP number:
+
+ Installed capacity (kVA):
+
+ Nominated capacity request (kVA):
+
+ Energy Trader (at time of application):
+
+ Request date from which nominated capacity is to apply:
+
+ Signed on behalf of:
+
+ By:
+
+
+
+
+ Signature of Customer:
+
+ Name of signatory:
+
+ Date:
+
+
+
+
+                                                   18
+Vector electricity distribution networks
+Power factor exemption due to solar installation
+request form
+Please provide the following information and send to vector.billing@vector.co.nz
+
+Required additional documents:
+   • Certificate of Compliance
+   • kVAr and kW at the ICP point of connection11
+   • kVAr and kW from the solar installation provided11
+
+
+ ICP number:
+
+ Business name:
+
+ Contact person:
+
+ Connection address:
+
+
+
+
+ Email address:
+
+ Phone number:
+
+ Signed on behalf of by
+ Trader/Consultant:
+
+ Name (print):
+
+ Signature of Customer:
+
+ Name (print):
+
+ Date:
+
+
+
+
+11   The measurements need to be instantaneous measurements (i.e. not energy over a period, but rather a
+     snapshot at 30-minute intervals). A minimum of one month data is required.
+
+
+
+                                                    19
+ Vector electricity distribution networks
+ DER price category application form – part one
+
+Please provide the following information and send to DERapplication@vector.co.nz
+
+Please note this is the initial application for the first stage approval. Once the assets are installed
+and DERMS integration is completed, stage 2 commences and the customer will receive a
+second application form via email to ensure the DERMS communication is implemented.
+
+
+
+
+ ICP number:
+
+ Business name:
+
+ Contact person:
+
+ Connection address:
+
+ Nominated minimum
+ guaranteed capacity12 (kVA):
+
+ Maximum site capacity13
+ (kVA):
+
+ Load management system
+ provider14:
+
+ Load management system
+ provider contact details:
+
+
+ Email address:
+
+ Phone number:
+
+ Signed on behalf of by
+ Trader/Consultant:
+
+ Name (print):
+
+ Signature of Customer:
+
+ Name (print):
+
+ Date:
+
+
+
+
+12 This is the guaranteed capacity.
+13 This is the requested capacity from Vector’s DERMS. The local connection assets will be assessed
+
+and may be augmented to support this capacity request.
+14 Service provider name if not self-managed.
+
+
+
+
+                                                  20
+

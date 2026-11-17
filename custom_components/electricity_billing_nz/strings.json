@@ -1,16 +1,277 @@
 {
   "config": {
     "abort": {
-      "already_configured": "Device is already configured",
-      "already_in_progress": "Configuration flow is already in progress"
+      "already_configured": "This ICP is already set up.",
+      "already_in_progress": "A setup for this ICP is already in progress."
     },
-    "flow_title": "{name}",
+    "error": {
+      "entity_not_found": "Entity not found.",
+      "invalid_unit": "The sensor's unit must be c/kWh, NZD/kWh or $/MWh.",
+      "name_required": "Enter a name.",
+      "duplicate_source": "Pick a different sensor for each source.",
+      "invalid_icp": "Enter the 15-character ICP number from your bill (10 digits, 2 letters, then 3 letters or digits), or leave it empty.",
+      "icp_in_use": "Another entry already uses this ICP number. Clear it to add another entry for the same node, e.g. to compare plans.",
+      "icp_in_setup": "A setup that hasn't finished is using this ICP number. Finish or close it first.",
+      "poc_mismatch": "The ICP's registry record connects it at {poc}, but the settled price sensor is for {node}. If that's wrong, close this setup and start again with the sensors for {poc}."
+    },
     "step": {
       "user": {
+        "title": "Spot price source",
+        "description": "Pick the ha-electricityinfo-nz price sensors for your ICP's node.",
         "data": {
-          "name": "Name"
+          "name": "Name",
+          "settled_entity": "Settled price",
+          "live_entity": "Live price",
+          "forecast_entity": "Day-ahead forecast",
+          "icp": "ICP number"
         },
-        "description": "Enter a name for this Electricity Billing NZ instance."
+        "data_description": {
+          "name": "Used for the device and entity names.",
+          "settled_entity": "The ha-electricityinfo-nz settled price sensor. Bills use these prices.",
+          "live_entity": "Optional. Used for the live price sensors.",
+          "forecast_entity": "Optional. Used for the forecast price sensors.",
+          "icp": "Optional. The connection's ICP number from your bill. With it, the same connection can't be added twice; leave it empty for an extra entry on the same node, e.g. to compare plans."
+        }
+      },
+      "network": {
+        "title": "Lines company",
+        "data": {
+          "distributor": "Lines company"
+        },
+        "data_description": {
+          "distributor": "Pre-selected from the ICP's Electricity Authority registry record when the ICP number was entered and the lookup worked."
+        }
+      },
+      "category": {
+        "title": "Categories",
+        "description": "Use the codes on your ICP's Electricity Authority registry record, or the ones your bill charges for ({network}). With an ICP number entered, they're pre-selected from the registry record when the lookup works.",
+        "data": {
+          "price_category": "Price category",
+          "loss_category": "Loss category"
+        }
+      },
+      "network_rates": {
+        "title": "Network rates",
+        "description": "{network} {category} rates in force from {effective_from}, and the loss factor from {loss_from}, ex GST, from {source}. Check them against the lines charges on your bill. A value you change overrides the bundled one from its schedule's start until the next bundled schedule; later changes go in the options.",
+        "data": {
+          "daily": "Network daily charge",
+          "import_peak": "Peak distribution rate",
+          "import_offpeak": "Off-peak distribution rate",
+          "export_credit_peak": "Peak export credit",
+          "export_credit_offpeak": "Off-peak export credit",
+          "loss_factor": "Loss factor"
+        },
+        "data_description": {
+          "export_credit_peak": "A credit paid to you, entered as a positive number.",
+          "loss_factor": "1 + losses, e.g. 1.0476."
+        }
+      },
+      "retailer": {
+        "title": "Retailer plan",
+        "description": "Per-kWh values in c/kWh, daily values in NZD/day, all ex GST. Add later changes as rate versions in the options.",
+        "data": {
+          "plan_name": "Plan name",
+          "import_margin": "Import margin",
+          "export_margin": "Export margin",
+          "transmission": "Transmission",
+          "levy": "Electricity Authority levy",
+          "metering_daily": "Metering daily charge",
+          "retailer_daily": "Retailer daily charge",
+          "export_floor": "Minimum export price",
+          "gst_inclusive": "Prices include GST"
+        },
+        "data_description": {
+          "import_margin": "Added to the spot price on import, before losses.",
+          "export_margin": "Taken off the spot price on export.",
+          "transmission": "The retailer's per-kWh transmission line on the bill.",
+          "export_floor": "Leave empty if export can go negative with spot.",
+          "gst_inclusive": "Add GST to the prices and daily charge this integration reports. The values above stay ex GST."
+        }
+      }
+    }
+  },
+  "options": {
+    "error": {
+      "entity_not_found": "Entity not found.",
+      "invalid_unit": "The sensor's unit must be c/kWh, NZD/kWh or $/MWh.",
+      "not_after_latest": "Must be after the latest retailer version.",
+      "no_changes": "Enter at least one value to override.",
+      "before_network_data": "Must be on or after {first}, when the bundled network data starts.",
+      "duplicate_source": "Pick a different sensor for each source.",
+      "invalid_icp": "Enter the 15-character ICP number from your bill (10 digits, 2 letters, then 3 letters or digits), or leave it empty.",
+      "icp_in_use": "Another entry already uses this ICP number.",
+      "icp_in_setup": "A setup that hasn't finished is using this ICP number. Finish or close it first."
+    },
+    "step": {
+      "init": {
+        "menu_options": {
+          "add_retailer_version": "Add retailer rate version",
+          "add_network_override": "Override network values",
+          "sources": "Change source entities",
+          "connection": "ICP number",
+          "gst": "GST"
+        }
+      },
+      "add_retailer_version": {
+        "title": "Add retailer rate version",
+        "description": "The new values apply from the date you pick; earlier periods keep the rates in force then (latest version: {latest}). Per-kWh values in c/kWh, ex GST.",
+        "data": {
+          "effective_from": "Effective from",
+          "plan_name": "Plan name",
+          "import_margin": "Import margin",
+          "export_margin": "Export margin",
+          "transmission": "Transmission",
+          "levy": "Electricity Authority levy",
+          "metering_daily": "Metering daily charge",
+          "retailer_daily": "Retailer daily charge",
+          "export_floor": "Minimum export price"
+        },
+        "data_description": {
+          "import_margin": "Added to the spot price on import, before losses.",
+          "export_margin": "Taken off the spot price on export.",
+          "transmission": "The retailer's per-kWh transmission line on the bill.",
+          "export_floor": "Leave empty if export can go negative with spot."
+        }
+      },
+      "add_network_override": {
+        "title": "Override network values",
+        "description": "Replace bundled network values from a date until the next bundled schedule takes effect, e.g. to follow what your bill charges. Per-kWh values in c/kWh, ex GST; leave a field empty to keep the bundled value. The bundled data starts on {first}.",
+        "data": {
+          "effective_from": "Effective from",
+          "daily": "Network daily charge",
+          "import_peak": "Peak distribution rate",
+          "import_offpeak": "Off-peak distribution rate",
+          "export_credit_peak": "Peak export credit",
+          "export_credit_offpeak": "Off-peak export credit",
+          "loss_factor": "Loss factor"
+        },
+        "data_description": {
+          "export_credit_peak": "A credit paid to you, entered as a positive number.",
+          "loss_factor": "1 + losses, e.g. 1.0476."
+        }
+      },
+      "sources": {
+        "title": "Source entities",
+        "data": {
+          "live_entity": "Live price",
+          "forecast_entity": "Day-ahead forecast"
+        },
+        "data_description": {
+          "live_entity": "Optional. Used for the live price sensors.",
+          "forecast_entity": "Optional. Used for the forecast price sensors."
+        }
+      },
+      "connection": {
+        "title": "ICP number",
+        "description": "Set the connection's ICP number so it can't be added twice, or clear it to allow extra entries on this node.",
+        "data": {
+          "icp": "ICP number"
+        }
+      },
+      "gst": {
+        "title": "GST",
+        "data": {
+          "gst_inclusive": "Prices include GST"
+        },
+        "data_description": {
+          "gst_inclusive": "Add GST to the prices and daily charge this integration reports. Rates you enter stay ex GST."
+        },
+        "description": "Changing this moves the price sensors' history by 15% from now on. The price_at action uses the current setting for past periods too."
+      }
+    },
+    "abort": {
+      "unknown_network": "The configured lines company or category is not in the bundled network data.",
+      "settled_not_found": "The settled price sensor no longer exists. Remove the entry and add it again with the new sensor."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "import_price": {
+        "name": "Import price"
+      },
+      "export_price": {
+        "name": "Export price"
+      },
+      "import_price_live": {
+        "name": "Import price live"
+      },
+      "export_price_live": {
+        "name": "Export price live"
+      },
+      "import_price_forecast": {
+        "name": "Import price forecast"
+      },
+      "export_price_forecast": {
+        "name": "Export price forecast"
+      },
+      "daily_charge": {
+        "name": "Daily charge"
+      },
+      "tou_band": {
+        "name": "TOU band",
+        "state": {
+          "peak": "Peak",
+          "offpeak": "Off-peak"
+        }
+      },
+      "next_band_change": {
+        "name": "Next band change"
+      }
+    },
+    "binary_sensor": {
+      "peak": {
+        "name": "Peak"
+      }
+    }
+  },
+  "exceptions": {
+    "unknown_network": {
+      "message": "The configured lines company or category is not in the bundled network data."
+    },
+    "invalid_unit": {
+      "message": "Unsupported spot price unit: {unit}."
+    },
+    "invalid_spot": {
+      "message": "The spot price must be a finite number."
+    },
+    "no_rates": {
+      "message": "The period starting {period_start} can't be priced: no rate data covers it (missing: {missing})."
+    },
+    "invalid_timestamp": {
+      "message": "The timestamp is not a valid date and time."
+    }
+  },
+  "services": {
+    "price_at": {
+      "name": "Price at",
+      "description": "Returns the landed import and export price for a spot price at a given time, using the rates in force then.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "The ICP to price for."
+        },
+        "timestamp": {
+          "name": "Timestamp",
+          "description": "Any time in the trading period to price."
+        },
+        "spot": {
+          "name": "Spot price",
+          "description": "The wholesale node price."
+        },
+        "spot_unit": {
+          "name": "Spot price unit",
+          "description": "Unit of the spot price."
+        }
+      }
+    },
+    "export_versions": {
+      "name": "Export rate versions",
+      "description": "Returns every rate version in force for the ICP as YAML.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "The ICP to export."
+        }
       }
     }
   }
