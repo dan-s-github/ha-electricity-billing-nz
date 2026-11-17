@@ -27,6 +27,7 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
     TextSelector,
 )
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_DISTRIBUTOR,
@@ -62,7 +63,7 @@ from .networks import (
     network_for_entry,
 )
 from .sources import SOURCE_KEYS, resolve_source, source_id
-from .tariff import all_bands, to_nzd_per_kwh
+from .tariff import NZ_TZ, all_bands, to_nzd_per_kwh, version_on
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -70,6 +71,7 @@ if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
 
     from .networks import Network
+    from .tariff import LossVersion, NetworkVersion
 
 # Rounding after c/kWh -> NZD/kWh, so 2.86 is stored as 0.0286.
 STORE_DIGITS = 8
@@ -134,6 +136,10 @@ def _cents_to_nzd(value: float) -> float:
     return round(to_nzd_per_kwh(float(value), "c/kWh"), STORE_DIGITS)
 
 
+def _nzd_to_cents(value: float) -> float:
+    return round(value * 100, 6)
+
+
 def retailer_version_from_form(
     user_input: Mapping[str, Any], effective_from: str
 ) -> dict[str, Any]:
@@ -156,12 +162,76 @@ def retailer_form_from_version(version: Mapping[str, Any]) -> dict[str, Any]:
     if version.get(CONF_PLAN_NAME):
         values[CONF_PLAN_NAME] = version[CONF_PLAN_NAME]
     for name in RETAILER_PER_KWH_FIELDS:
-        values[name] = round(version.get(name, 0.0) * 100, 6)
+        values[name] = _nzd_to_cents(version.get(name, 0.0))
     for name in RETAILER_DAILY_FIELDS:
         values[name] = version.get(name, 0.0)
     if version.get(CONF_EXPORT_FLOOR) is not None:
-        values[CONF_EXPORT_FLOOR] = round(version[CONF_EXPORT_FLOOR] * 100, 6)
+        values[CONF_EXPORT_FLOOR] = _nzd_to_cents(version[CONF_EXPORT_FLOOR])
     return values
+
+
+def _network_fields(bands: list[str]) -> dict[Any, Any]:
+    """Return the network value fields, keyed as network overrides are."""
+    fields: dict[Any, Any] = {
+        probatio.Optional(OVERRIDE_DAILY): DOLLARS_PER_DAY_SELECTOR
+    }
+    for band in bands:
+        fields[probatio.Optional(f"{OVERRIDE_IMPORT_PREFIX}{band}")] = CENTS_SELECTOR
+    for band in bands:
+        fields[probatio.Optional(f"{OVERRIDE_EXPORT_CREDIT_PREFIX}{band}")] = (
+            CENTS_SELECTOR
+        )
+    fields[probatio.Optional(OVERRIDE_LOSS_FACTOR)] = FACTOR_SELECTOR
+    return fields
+
+
+def _is_per_kwh(name: str) -> bool:
+    return name.startswith((OVERRIDE_IMPORT_PREFIX, OVERRIDE_EXPORT_CREDIT_PREFIX))
+
+
+def network_values_from_form(user_input: Mapping[str, Any]) -> dict[str, float]:
+    """Convert entered network values (c/kWh) to override values (NZD/kWh)."""
+    return {
+        name: _cents_to_nzd(value) if _is_per_kwh(name) else float(value)
+        for name, value in user_input.items()
+        if name != CONF_EFFECTIVE_FROM and value is not None
+    }
+
+
+def bundled_network_values(
+    version: NetworkVersion, loss: LossVersion
+) -> dict[str, float]:
+    """Return a version's values keyed and stored as overrides are (NZD/kWh)."""
+    bands = version.bands.bands
+    return {
+        OVERRIDE_DAILY: version.daily,
+        **{f"{OVERRIDE_IMPORT_PREFIX}{b}": version.import_rates[b] for b in bands},
+        **{
+            f"{OVERRIDE_EXPORT_CREDIT_PREFIX}{b}": version.export_credit.get(b, 0.0)
+            for b in bands
+        },
+        OVERRIDE_LOSS_FACTOR: loss.factor,
+    }
+
+
+def setup_network_overrides(
+    changed: Mapping[str, float], network_from: date, loss_from: date
+) -> list[dict[str, Any]]:
+    """
+    Return overrides for values changed from the schedules in force.
+
+    Each dates from its own schedule's start, as the network and loss
+    schedules needn't start together.
+    """
+    network = {k: v for k, v in changed.items() if k != OVERRIDE_LOSS_FACTOR}
+    loss = {k: v for k, v in changed.items() if k == OVERRIDE_LOSS_FACTOR}
+    if network_from == loss_from:
+        network, loss = network | loss, {}
+    return [
+        {CONF_EFFECTIVE_FROM: start.isoformat(), **values}
+        for start, values in ((network_from, network), (loss_from, loss))
+        if values
+    ]
 
 
 def _validate_price_entity(
@@ -218,6 +288,7 @@ class ElectricityBillingNzConfigFlow(ConfigFlow, domain=DOMAIN):
         self._title = ""
         self._networks: dict[str, Network] = {}
         self._registry: RegistryRecord | None = None
+        self._network_overrides: list[dict[str, Any]] = []
 
     @staticmethod
     @callback
@@ -327,7 +398,7 @@ class ElectricityBillingNzConfigFlow(ConfigFlow, domain=DOMAIN):
         network = self._networks[self._data[CONF_DISTRIBUTOR]]
         if user_input is not None:
             self._data.update(user_input)
-            return await self.async_step_retailer()
+            return await self.async_step_network_rates()
 
         def codes(values: Mapping[str, Any]) -> list[SelectOptionDict]:
             return [SelectOptionDict(value=c, label=c) for c in sorted(values)]
@@ -357,6 +428,50 @@ class ElectricityBillingNzConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders={"network": network.name},
         )
 
+    async def async_step_network_rates(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show the bundled network rates in force, to check against a bill."""
+        # The category steps only offer bundled codes, so this is found.
+        found = network_for_entry(self._networks, self._data)
+        if found is None:
+            return await self.async_step_retailer()
+        today = dt_util.now(NZ_TZ).date()
+        version = version_on(found.versions, today) or found.versions[0]
+        loss = version_on(found.losses, today) or found.losses[0]
+        bundled = bundled_network_values(version, loss)
+
+        if user_input is not None:
+            # A changed value overrides the bundled one from its schedule's
+            # start until the next; unchanged or cleared values keep it.
+            changed = {
+                name: value
+                for name, value in network_values_from_form(user_input).items()
+                if round(value, STORE_DIGITS) != round(bundled[name], STORE_DIGITS)
+            }
+            self._network_overrides = setup_network_overrides(
+                changed, version.effective_from, loss.effective_from
+            )
+            return await self.async_step_retailer()
+
+        shown = {
+            name: _nzd_to_cents(value) if _is_per_kwh(name) else value
+            for name, value in bundled.items()
+        }
+        return self.async_show_form(
+            step_id="network_rates",
+            data_schema=self.add_suggested_values_to_schema(
+                probatio.Schema(_network_fields(list(version.bands.bands))), shown
+            ),
+            description_placeholders={
+                "network": found.network.name,
+                "category": self._data[CONF_PRICE_CATEGORY],
+                "effective_from": version.effective_from.isoformat(),
+                "loss_from": loss.effective_from.isoformat(),
+                "source": version.source or "the bundled data",
+            },
+        )
+
     async def async_step_retailer(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -374,7 +489,7 @@ class ElectricityBillingNzConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_RETAILER_VERSIONS: [
                         retailer_version_from_form(user_input, FIRST_EFFECTIVE_FROM)
                     ],
-                    CONF_NETWORK_OVERRIDES: [],
+                    CONF_NETWORK_OVERRIDES: self._network_overrides,
                 },
             )
 
@@ -457,17 +572,9 @@ class OptionsFlowHandler(OptionsFlowWithReload):
         placeholders = {"first": versions[0].effective_from.isoformat()}
         if user_input is not None:
             override: dict[str, Any] = {
-                CONF_EFFECTIVE_FROM: str(user_input[CONF_EFFECTIVE_FROM])
+                CONF_EFFECTIVE_FROM: str(user_input[CONF_EFFECTIVE_FROM]),
+                **network_values_from_form(user_input),
             }
-            for name, value in user_input.items():
-                if name == CONF_EFFECTIVE_FROM or value is None:
-                    continue
-                if name.startswith(
-                    (OVERRIDE_IMPORT_PREFIX, OVERRIDE_EXPORT_CREDIT_PREFIX)
-                ):
-                    override[name] = _cents_to_nzd(value)
-                else:
-                    override[name] = float(value)
             # Overrides before the bundled data have nothing to apply to; a
             # loss-only override only needs the loss data.
             starts = (
@@ -497,17 +604,8 @@ class OptionsFlowHandler(OptionsFlowWithReload):
 
         fields: dict[Any, Any] = {
             probatio.Required(CONF_EFFECTIVE_FROM): DateSelector(),
-            probatio.Optional(OVERRIDE_DAILY): DOLLARS_PER_DAY_SELECTOR,
+            **_network_fields(bands),
         }
-        for band in bands:
-            fields[probatio.Optional(f"{OVERRIDE_IMPORT_PREFIX}{band}")] = (
-                CENTS_SELECTOR
-            )
-        for band in bands:
-            fields[probatio.Optional(f"{OVERRIDE_EXPORT_CREDIT_PREFIX}{band}")] = (
-                CENTS_SELECTOR
-            )
-        fields[probatio.Optional(OVERRIDE_LOSS_FACTOR)] = FACTOR_SELECTOR
         return self.async_show_form(
             step_id="add_network_override",
             data_schema=self.add_suggested_values_to_schema(

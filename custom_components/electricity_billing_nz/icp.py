@@ -106,7 +106,8 @@ class RegistryRecord:
     loss_category: str | None
 
 
-# Row label on the page -> RegistryRecord field.
+# Row label on the page -> RegistryRecord field. Values are upper-cased, as
+# the codes are.
 _REGISTRY_LABELS = {
     "network participant": "network",
     "poc": "poc",
@@ -150,12 +151,12 @@ def parse_registry_page(text: str) -> RegistryRecord | None:
             continue
         name = _REGISTRY_LABELS.get(row[0].casefold())
         if name and fields[name] is None and row[1]:
-            fields[name] = row[1]
+            fields[name] = row[1].upper()
     # "VECT - Vector Limited": the participant code is what's matched.
     if fields["network"]:
-        fields["network"] = fields["network"].split(" - ")[0].strip().upper()
+        fields["network"] = fields["network"].split(" - ")[0].strip()
     # It's shown in a warning, so only a well-formed node code is kept.
-    if fields["poc"] and not POC_PATTERN.fullmatch(fields["poc"].upper()):
+    if fields["poc"] and not POC_PATTERN.fullmatch(fields["poc"]):
         fields["poc"] = None
     if not any(fields.values()):
         return None

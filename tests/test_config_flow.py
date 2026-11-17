@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+from datetime import date
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from freezegun.api import FrozenDateTimeFactory
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.electricity_billing_nz.config_flow import (
+    setup_network_overrides,
+)
 from custom_components.electricity_billing_nz.const import DOMAIN
 from custom_components.electricity_billing_nz.icp import RegistryRecord, normalise_icp
 
 from .conftest import ECOTRICITY, FORECAST, ICP, LIVE, SETTLED, entry_data
+from .helpers import nz
 
 RETAILER_FORM = {
     "plan_name": "ecoWHOLESALE",
@@ -85,6 +91,11 @@ async def test_full_flow(hass: HomeAssistant) -> None:
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"price_category": "ARHLC", "loss_category": "VECA1"}
     )
+    assert result["step_id"] == "network_rates"
+    # Submitted as shown: the bundled values need no override.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _suggested(result)
+    )
     assert result["step_id"] == "retailer"
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], RETAILER_FORM
@@ -119,6 +130,120 @@ async def test_full_flow(hass: HomeAssistant) -> None:
         ],
         "network_overrides": [],
     }
+
+
+async def _to_network_rates(hass: HomeAssistant) -> dict:
+    result = await _start(hass)
+    for step in (
+        {"name": "Home", "settled_entity": SETTLED},
+        {"distributor": "vector"},
+        {"price_category": "ARHLC", "loss_category": "VECA1"},
+    ):
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], step)
+    assert result["step_id"] == "network_rates"
+    return result
+
+
+@pytest.mark.parametrize(
+    ("day", "shown"),
+    [
+        (
+            "2026-11-17 12:00",
+            {
+                "effective_from": "2026-04-01",
+                "daily": 0.9,
+                "import_peak": 15.04,
+                "export_credit_peak": 5.24,
+                "loss_factor": 1.0476,
+            },
+        ),
+        (
+            "2025-11-17 12:00",
+            {
+                "effective_from": "2025-04-01",
+                "daily": 0.75,
+                "import_peak": 15.75,
+                "export_credit_peak": 0.0,
+                "loss_factor": 1.0533,
+            },
+        ),
+        # Before the bundled data: its first schedule is shown.
+        (
+            "2024-11-17 12:00",
+            {
+                "effective_from": "2025-04-01",
+                "daily": 0.75,
+                "import_peak": 15.75,
+                "export_credit_peak": 0.0,
+                "loss_factor": 1.0533,
+            },
+        ),
+    ],
+)
+async def test_network_rates_shows_schedule_in_force(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, day: str, shown: dict
+) -> None:
+    """The network values in force today are shown, ex GST, in c/kWh."""
+    freezer.move_to(nz(day))
+    result = await _to_network_rates(hass)
+    effective_from = shown.pop("effective_from")
+    placeholders = result["description_placeholders"]
+    assert placeholders["effective_from"] == placeholders["loss_from"] == effective_from
+    assert result["description_placeholders"]["source"].endswith(".pdf")
+    suggested = _suggested(result)
+    assert {k: suggested[k] for k in shown} == shown
+
+
+async def test_network_rates_change_is_an_override(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Only values changed from the schedule are stored, from its start."""
+    freezer.move_to(nz("2026-11-17 12:00"))
+    result = await _to_network_rates(hass)
+    values = _suggested(result) | {"daily": 0.95, "import_peak": 15.5}
+    del values["loss_factor"]  # a cleared field keeps the bundled value
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], values)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], RETAILER_FORM
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["options"]["network_overrides"] == [
+        {"effective_from": "2026-04-01", "daily": 0.95, "import_peak": 0.155}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("changed", "expected"),
+    [
+        ({}, []),
+        (
+            {"daily": 0.95, "loss_factor": 1.05},
+            [
+                {"effective_from": "2026-04-01", "daily": 0.95},
+                {"effective_from": "2026-07-01", "loss_factor": 1.05},
+            ],
+        ),
+        (
+            {"loss_factor": 1.05},
+            [{"effective_from": "2026-07-01", "loss_factor": 1.05}],
+        ),
+    ],
+)
+def test_setup_overrides_date_from_their_schedule(
+    changed: dict[str, float], expected: list[dict]
+) -> None:
+    """Network and loss changes each start with their own schedule."""
+    assert (
+        setup_network_overrides(changed, date(2026, 4, 1), date(2026, 7, 1)) == expected
+    )
+
+
+def test_setup_overrides_share_a_date() -> None:
+    """Schedules that start together give one override."""
+    day = date(2026, 4, 1)
+    assert setup_network_overrides({"daily": 0.95, "loss_factor": 1.05}, day, day) == [
+        {"effective_from": "2026-04-01", "daily": 0.95, "loss_factor": 1.05}
+    ]
 
 
 @pytest.mark.parametrize(

@@ -35,10 +35,10 @@ def test_parse_tolerates_layout_changes() -> None:
     page = """
         <table><tr><th>Network participant</th><th>vect - Vector</th><th></th></tr>
         <tr><th>POC</th><th><span>ros0221</span></th></tr>
-        <tr><th>Distributor price category code</th><td>ARHLC</td></tr></table>
+        <tr><th>Distributor price category code</th><td> arhlc </td></tr></table>
     """
     assert parse_registry_page(page) == RegistryRecord(
-        network="VECT", poc="ros0221", price_category="ARHLC", loss_category=None
+        network="VECT", poc="ROS0221", price_category="ARHLC", loss_category=None
     )
 
 

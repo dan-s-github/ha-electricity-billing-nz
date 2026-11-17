@@ -50,6 +50,22 @@
           "loss_category": "Loss category"
         }
       },
+      "network_rates": {
+        "title": "Network rates",
+        "description": "{network} {category} rates in force from {effective_from}, and the loss factor from {loss_from}, ex GST, from {source}. Check them against the lines charges on your bill. A value you change overrides the bundled one from its schedule's start until the next bundled schedule; later changes go in the options.",
+        "data": {
+          "daily": "Network daily charge",
+          "import_peak": "Peak distribution rate",
+          "import_offpeak": "Off-peak distribution rate",
+          "export_credit_peak": "Peak export credit",
+          "export_credit_offpeak": "Off-peak export credit",
+          "loss_factor": "Loss factor"
+        },
+        "data_description": {
+          "export_credit_peak": "A credit paid to you, entered as a positive number.",
+          "loss_factor": "1 + losses, e.g. 1.0476."
+        }
+      },
       "retailer": {
         "title": "Retailer plan",
         "description": "Per-kWh values in c/kWh, daily values in NZD/day, all ex GST. Add later changes as rate versions in the options.",

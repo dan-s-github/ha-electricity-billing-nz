@@ -131,7 +131,12 @@ for the wholesale price.
    pre-selects the lines company and both categories. It also warns if the
    record's point of connection isn't the settled sensor's node. If the page
    can't be read, pick them yourself.
-5. **Retailer plan**: enter the per-kWh values in c/kWh and the daily charges
+5. **Network rates**: the lines company's daily charge, distribution rates,
+   export credits and loss factor for those categories, from the bundled
+   schedule in force today, ex GST. Check them against the lines charges on
+   your bill. A value you change is saved as a network override from that
+   schedule's start until the next bundled schedule.
+6. **Retailer plan**: enter the per-kWh values in c/kWh and the daily charges
    in NZD/day, all excluding GST. **Prices include GST** (on by default) adds
    GST to the prices and daily charge the integration reports; turn it off
    for ex-GST prices. You can change it later under **GST** in the options.

@@ -41,6 +41,7 @@ async def test_flow_stores_registry_id(
         {"name": "Home", "settled_entity": SETTLED},
         {"distributor": "vector"},
         {"price_category": "ARHLC", "loss_category": "VECA1"},
+        {},
         {"gst_inclusive": True},
     ):
         result = await hass.config_entries.flow.async_configure(result["flow_id"], step)
