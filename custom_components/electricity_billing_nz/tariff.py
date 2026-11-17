@@ -363,7 +363,9 @@ def trading_period_start(trading_period: int, at: datetime) -> datetime | None:
         start = add_periods(nz_midnight(candidate), trading_period - 1)
         if start.astimezone(NZ_TZ).date() == candidate:
             starts.append(start)
-    return min(starts, key=lambda s: abs(s - at), default=None)
+    # In UTC: within one zone, subtraction ignores a DST change in between.
+    at_utc = at.astimezone(UTC)
+    return min(starts, key=lambda s: abs(s.astimezone(UTC) - at_utc), default=None)
 
 
 def to_nzd_per_kwh(value: float, unit: str | None) -> float:
@@ -459,7 +461,9 @@ def export_price(tariff: Tariff, spot: float, at: datetime) -> PriceBreakdown:
 def _import(tariff: Tariff, spot: float, parts: Rates) -> PriceBreakdown:
     network, loss, retailer, band = parts
     margin = retailer.import_margin
-    rate = network.import_rates.get(band, 0.0)
+    # Every band has an import rate: bundled data is checked when it's
+    # loaded, and overrides only replace rates.
+    rate = network.import_rates[band]
     ex_gst = (
         (spot + margin) * loss.factor + rate + retailer.transmission + retailer.levy
     )

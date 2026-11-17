@@ -52,6 +52,7 @@ jobs:
         run: uv run --group dev python -m tools.vector_schedule
 
       - name: Run tests with the new schedule
+        id: tests
         if: steps.check.outputs.updated == 'true'
         run: uv run --group dev pytest
 
@@ -87,7 +88,8 @@ jobs:
           )"
 
       - name: Open an issue for a person to check
-        if: steps.check.outputs.manual == 'true'
+        # Also when the tests failed: these schedules need a person anyway.
+        if: ${{ !cancelled() && steps.check.outputs.manual == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           EFFECTIVE_FROM: ${{ steps.check.outputs.manual_effective_from }}
@@ -102,5 +104,29 @@ jobs:
           Vector's pricing schedules need a person: ${REASON}
 
           Add or correct them in \`custom_components/electricity_billing_nz/networks/vector.yaml\` by hand. If the layout changed for good, update \`tools/vector_schedule.py\` too.
+          EOF
+          )"
+
+      - name: Open an issue when a parsed schedule fails the tests
+        if: failure() && steps.tests.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSIONS: ${{ steps.check.outputs.versions }}
+          SOURCES: ${{ steps.check.outputs.sources }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Vector's pricing schedule ${VERSIONS} fails the tests"
+          sources=$(tr ' ' '\n' <<<"$SOURCES")
+          if gh issue list --state open --search "in:title \"${title}\"" --json number --jq '.[].number' | grep -q .; then
+            echo "An issue for this schedule is already open."
+            exit 0
+          fi
+          gh issue create --title "$title" --body "$(cat <<EOF
+          The monthly check parsed Vector's new pricing schedule (${VERSIONS}), but the tests fail with it, so no PR was opened:
+          ${sources}
+
+          See the test output: ${RUN}
+
+          Check the parsed values against the PDF, then add the schedule to \`vector.yaml\` by hand or fix \`tools/vector_schedule.py\`.
           EOF
           )"

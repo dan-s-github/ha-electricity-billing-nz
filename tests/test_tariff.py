@@ -410,6 +410,9 @@ def test_next_band_change_across_2025_and_2026() -> None:
         (1, "2026-07-15 23:59", "2026-07-16 00:00"),  # tomorrow's first period
         (50, "2026-04-05 23:59", "2026-04-05 23:30"),  # 50 periods as DST ends
         (46, "2026-09-27 23:59", "2026-09-27 23:30"),  # 46 as DST starts
+        # 2026-04-05 has 25 hours: noon is 13 hours after its midnight and 12
+        # before the next, so the next day's period 1 is nearer.
+        (1, "2026-04-05 12:00", "2026-04-06 00:00"),
     ],
 )
 def test_trading_period_start(trading_period: int, at: str, expected: str) -> None:

@@ -43,6 +43,7 @@ from .sources import resolve_source
 from .tariff import (
     GST_RATE,
     NZ_TZ,
+    PERIODS_PER_DAY_MAX,
     NoRatesError,
     PriceBreakdown,
     Rates,
@@ -70,7 +71,6 @@ if TYPE_CHECKING:
 
     from .networks import Network
 
-MAX_TRADING_PERIOD = 50
 RETAILER_FIELDS = (*RETAILER_PER_KWH_FIELDS, *RETAILER_DAILY_FIELDS, CONF_EXPORT_FLOOR)
 
 
@@ -159,7 +159,7 @@ def _trading_period(value: Any) -> int | None:
         number = int(value)
     except TypeError, ValueError:
         return None
-    return number if 1 <= number <= MAX_TRADING_PERIOD else None
+    return number if 1 <= number <= PERIODS_PER_DAY_MAX else None
 
 
 def _source_period(state: State, periods_back: int) -> datetime:
