@@ -43,4 +43,4 @@ jobs:
         run: uv run --group dev pytest -v
 
       - name: Run type checks
-        run: uv run --group dev mypy custom_components
+        run: uv run --group dev mypy custom_components tools

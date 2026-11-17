@@ -1,0 +1,110 @@
+name: Vector schedule
+
+# Monthly: look for a new Vector pricing schedule. If it parses, open a PR
+# that adds it to vector.yaml; if not, open an issue to transcribe it.
+on:
+  schedule:
+    # 09:00 NZST on the 2nd of each month.
+    - cron: "0 21 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: vector-schedule
+
+env:
+  # The PR is cut from, and opened against, the default branch, also when
+  # the workflow is started by hand on another branch.
+  BASE: ${{ github.event.repository.default_branch || 'main' }}
+
+jobs:
+  update:
+    name: "Check for a new schedule"
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.BASE }}
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+          cache: "pip"
+          cache-dependency-path: "uv.lock"
+
+      - name: Install uv and pdftotext
+        run: |
+          python3 -m pip install uv==0.13.6
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
+
+      - name: Sync dependencies
+        run: uv sync --group dev --frozen
+
+      - name: Look for a new schedule
+        id: check
+        run: uv run --group dev python -m tools.vector_schedule
+
+      - name: Run tests with the new schedule
+        if: steps.check.outputs.updated == 'true'
+        run: uv run --group dev pytest
+
+      - name: Open a pull request
+        if: steps.check.outputs.updated == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSIONS: ${{ steps.check.outputs.versions }}
+          SOURCES: ${{ steps.check.outputs.sources }}
+        run: |
+          branch="network-data/vector-${VERSIONS// /-}"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "Branch $branch already exists; not opening another PR."
+            exit 0
+          fi
+          title="feat: add Vector's pricing schedule ${VERSIONS// /, }"
+          sources=$(tr ' ' '\n' <<<"$SOURCES")
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --create "$branch"
+          git add custom_components/electricity_billing_nz/networks/vector.yaml
+          git commit --message "$title"
+          git push origin "$branch"
+          gh pr create --base "$BASE" --head "$branch" --title "$title" \
+            --body "$(cat <<EOF
+          Vector published a new pricing schedule (${VERSIONS}):
+          ${sources}
+
+          The monthly check parsed it, added it to \`vector.yaml\` and the tests pass with it. Before merging, check the new entries against the PDF: the daily charge, the peak and off-peak rates, the export credits, the VECA1 loss factor and the peak times.
+
+          Opened by the Vector schedule workflow. Workflows don't run on PRs opened with the workflow token, so close and reopen this PR to run CI.
+          EOF
+          )"
+
+      - name: Open an issue for a person to check
+        if: steps.check.outputs.manual == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EFFECTIVE_FROM: ${{ steps.check.outputs.manual_effective_from }}
+          URL: ${{ steps.check.outputs.manual_url }}
+          REASON: ${{ steps.check.outputs.reason }}
+        run: |
+          title="Check Vector's pricing schedule from ${EFFECTIVE_FROM}"
+          if gh issue list --state open --search "in:title \"${title}\"" --json number --jq '.[].number' | grep -q .; then
+            echo "An issue for this schedule is already open."
+            exit 0
+          fi
+          gh issue create --title "$title" --body "$(cat <<EOF
+          Vector's pricing schedule from ${EFFECTIVE_FROM} needs a person:
+          ${URL}
+
+          ${REASON}
+
+          Add or correct it in \`custom_components/electricity_billing_nz/networks/vector.yaml\` by hand. If the layout changed for good, update \`tools/vector_schedule.py\` too. Later schedules wait until this one is bundled.
+          EOF
+          )"

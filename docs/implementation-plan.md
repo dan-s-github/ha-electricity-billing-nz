@@ -177,24 +177,24 @@ The integration stays offline at runtime (`iot_class: calculated`). A scheduled 
 What's available:
 - **Vector:** a PDF only, with no CSV, XLSX or API. The pricing page links it as `media.vector.co.nz/production/documents/electricitypricescheduleseffectivefrom1april{YYYY}.pdf`, and the PDF starts with `Version: v{YYYY}.N` / `Effective: 1 April {YYYY}`.
   - `pdftotext -layout` extracts the rate tables and loss factors as fixed-width text.
-  - The TOU hours appear only as a chart.
+  - The TOU hours are in a chart, and also in the price component definitions as text (`-PEAK 17:00 to 22:00 for months May to September`).
   - Vector files no EIEP12 notifications on EMI.
 - **Other distributors:** the EMI dataset `Retail/Datasets/DistributorPriceChangeNotifications/{YEAR}` has EIEP12 CSV/TXT files from about 20 distributors (Orion `ORON`, Wellington `WATA`/`ELEC`, …).
   - These files have rates per category, time-block code and effective date.
   - They have no clock windows or loss factors, and the layouts vary.
 - **Category codes:** EMI `MarketStructure/DistributionPriceCategoryCodes` is a daily CSV of NSP, price category code, effective date and ICP counts. It has codes, not rates, so it can only confirm that a configured category still exists.
 
-Plan (Phase 3; Vector part can come earlier):
-1. `scripts/check_network_updates.py` (dev-only, run with `uv run`). For each `networks/*.yaml` it looks for the next year's source:
-   - **Vector:**
-     - Request the expected PDF URL. If that misses, scan the pricing page for a link matching `electricitypricescheduleseffectivefrom`.
-     - Extract the text and parse the residential tables by header column positions (FIXD, OFPK, PEAK, IJOP, IJPK) and the loss-category table. Brackets mean negative.
-     - Check the `Version`/`Effective` lines.
-   - **EIEP12 distributors:** list the EMI folder for new `{DIST}_E_*_PRICE_{YYYY}04_*` files and parse the `DET` rows.
-   - Either way, write a draft version into the YAML and print the diff.
-2. `.github/workflows/network-updates.yml` runs the script weekly from January to April and opens a draft PR when something new appears. A reviewer confirms the TOU hours against the PDF chart before merging.
-3. A test checks that the parser reproduces the 2026 Vector rows from a saved text fixture of the v2026.1 PDF.
-4. Retailer values are not covered by any of this; the user enters them through the options flow ("add rate version"). These are the margin, transmission, levy and daily charges. "Override network value" covers network changes that land before a release.
+Vector (built):
+1. `tools/vector_schedule.py` finds every schedule linked from Vector's pricing page that's newer than the bundled data, and adds them oldest first, stopping at the first it can't read. Each is extracted with `pdftotext -layout`. It also re-reads the bundled schedule's PDF and flags it when its `Version:` has changed (a corrected PDF).
+   - It reads the ARHLC/ARHLU rows by header column position (FIXD, OFPK, PEAK, IJOP, IJPK; brackets mean negative, so an injection charge in brackets is an export credit), the VECA1 loss factor, the `-PEAK … for months …` definitions (any other wording is an error), the `Version:` line (the YAML's `schedule_version`) and the `Effective:` date, which must match the link's.
+   - Peak must apply Monday to Sunday. Any other layout, such as 2025's separate summer and winter PEAK columns, raises `LayoutError` instead of guessing.
+   - It appends the version to `vector.yaml` with ruamel.yaml, keeping the comments, and reuses the latest band schedule when the peak rules are unchanged. Changed rules get a new band schedule; an existing one is never overwritten.
+2. `.github/workflows/vector-schedule.yml` runs it monthly (and by hand). For a new schedule that parses, it runs the tests and opens a PR for a person to check against the PDF. One that doesn't parse gets an issue to transcribe by hand.
+3. `tests/test_vector_schedule.py` checks the parser reproduces the bundled 2026 data from a saved `pdftotext` fixture, rejects the 2025 layout, and writes a simulated 2027 schedule.
+
+Later (Phase 3): the EIEP12 distributors. List the EMI folder for new `{DIST}_E_*_PRICE_{YYYY}04_*` files, parse the `DET` rows and write a draft version the same way.
+
+Retailer values are not covered by any of this; the user enters them through the options flow ("add rate version"). These are the margin, transmission, levy and daily charges. "Override network value" covers network changes that land before a release.
 
 ## Critical files
 
