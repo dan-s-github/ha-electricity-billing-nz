@@ -137,5 +137,19 @@ async def async_remove_entry(
     await _billing_store(hass, entry).async_remove()
 
 
+class _BillingStore(Store[dict[str, Any]]):
+    """The billing meter's storage; BillingMeter reads version 1 data too."""
+
+    async def _async_migrate_func(
+        self,
+        old_major_version: int,
+        old_minor_version: int,  # noqa: ARG002
+        old_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        if old_major_version != 1:
+            raise NotImplementedError
+        return old_data
+
+
 def _billing_store(hass: HomeAssistant, entry: ConfigEntry) -> Store[dict[str, Any]]:
-    return Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
+    return _BillingStore(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")

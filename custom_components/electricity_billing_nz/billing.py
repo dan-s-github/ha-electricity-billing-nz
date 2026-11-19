@@ -6,6 +6,9 @@ spread over the trading periods they cover, and each period is priced at
 its own settled spot with the rates in force at its start. Until then it
 counts at the live spot (or the latest known one) and is provisional; after
 PROVISIONAL_LIMIT it is final at that price.
+
+Cycles keep their final periods' energy and spot, not their charges, so a
+rate change dated into a cycle reprices it when the entry reloads.
 """
 
 from __future__ import annotations
@@ -35,7 +38,9 @@ if TYPE_CHECKING:
 
 type Side = Literal["import", "export"]
 
-STORAGE_VERSION = 1
+# 2: cycles keep their periods. Version 1 cycles kept only totals, which
+# are carried over as they are; BillingMeter reads both.
+STORAGE_VERSION = 2
 # A period still without a settled price after this is final at its
 # provisional price.
 PROVISIONAL_LIMIT = timedelta(hours=48)
@@ -121,37 +126,25 @@ class Charges:
 
 
 @dataclass
-class Cycle:
-    """Energy and charges for one billing cycle."""
+class Totals:
+    """Metered kWh and priced charges per band."""
 
-    start: date
-    # When metering covered this cycle from: its start, or the first reading
-    # if billing was set up during it.
-    since: datetime
-    # Metered kWh per band, counted when read: [import, export].
+    # [import, export] kWh per band.
     kwh: dict[str, list[float]] = field(default_factory=dict)
-    # Priced (settled or final) charges per band.
     charges: dict[str, Charges] = field(default_factory=dict)
     # Periods made final without a settled price.
     unsettled_periods: int = 0
-    # Periods no rate data covered; their energy is metered but not priced.
+    # Final periods without a spot or rate data; their energy is metered
+    # but not priced.
     unpriced_periods: int = 0
 
-    @property
-    def complete(self) -> bool:
-        """Return True if metering covered the whole cycle."""
-        return self.since <= nz_midnight(self.start)
-
-    def add_kwh(self, band: str, side: Side, kwh: float) -> None:
-        """Count metered energy in a band."""
-        totals = self.kwh.setdefault(band, [0.0, 0.0])
-        totals[0 if side == "import" else 1] += kwh
+    def copy(self) -> Totals:
+        """Return a copy that can be added to without changing this one."""
+        return Totals.from_dict(self.as_dict())
 
     def as_dict(self) -> dict[str, Any]:
-        """Return the cycle for storage."""
+        """Return the totals for storage."""
         return {
-            "start": self.start.isoformat(),
-            "since": self.since.isoformat(),
             "kwh": self.kwh,
             "charges": {band: asdict(c) for band, c in self.charges.items()},
             "unsettled_periods": self.unsettled_periods,
@@ -159,15 +152,77 @@ class Cycle:
         }
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> Cycle:
-        """Return a stored cycle."""
+    def from_dict(cls, data: Mapping[str, Any]) -> Totals:
+        """Return stored totals."""
         return cls(
-            start=date.fromisoformat(data["start"]),
-            since=datetime.fromisoformat(data["since"]),
             kwh={band: list(v) for band, v in data["kwh"].items()},
             charges={band: Charges(**c) for band, c in data["charges"].items()},
             unsettled_periods=data["unsettled_periods"],
             unpriced_periods=data["unpriced_periods"],
+        )
+
+
+@dataclass
+class Period:
+    """A final trading period: its energy and the spot it was priced at."""
+
+    import_kwh: float = 0.0
+    export_kwh: float = 0.0
+    # None when no spot was known when it was made final.
+    spot: float | None = None
+    settled: bool = True
+
+
+@dataclass
+class Cycle:
+    """Energy and charges for one billing cycle."""
+
+    start: date
+    # When metering covered this cycle from: its start, or when every meter
+    # had a first reading if billing was set up (or a meter added) during it.
+    since: datetime
+    # Final periods, keyed by period start in UTC.
+    periods: dict[datetime, Period] = field(default_factory=dict)
+    # Totals from storage version 1, which kept no periods; they can't be
+    # repriced.
+    carried: Totals | None = None
+    # The periods priced at the meter's tariff, with any carried totals.
+    totals: Totals = field(default_factory=Totals, compare=False, repr=False)
+
+    @property
+    def complete(self) -> bool:
+        """Return True if metering covered the whole cycle."""
+        return self.since <= nz_midnight(self.start)
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return the cycle for storage."""
+        data: dict[str, Any] = {
+            "start": self.start.isoformat(),
+            "since": self.since.isoformat(),
+            "periods": [
+                [key.isoformat(), p.import_kwh, p.export_kwh, p.spot, p.settled]
+                for key, p in sorted(self.periods.items())
+            ],
+        }
+        if self.carried is not None:
+            data["carried"] = self.carried.as_dict()
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Cycle:
+        """Return a stored cycle, from storage version 2 or 1."""
+        start = date.fromisoformat(data["start"])
+        since = datetime.fromisoformat(data["since"])
+        if "periods" not in data:
+            return cls(start, since, carried=Totals.from_dict(data))
+        return cls(
+            start,
+            since,
+            periods={
+                datetime.fromisoformat(key): Period(imp, exp, spot, settled)
+                for key, imp, exp, spot, settled in data["periods"]
+            },
+            carried=Totals.from_dict(data["carried"]) if "carried" in data else None,
         )
 
 
@@ -303,7 +358,7 @@ def _band(tariff: Tariff, start: datetime) -> str:
 
 
 def _price_period(
-    tariff: Tariff, start: datetime, usage: Pending, spot: float
+    tariff: Tariff, start: datetime, usage: Pending | Period, spot: float
 ) -> tuple[str, Charges, float, float]:
     """
     Price one period's energy at ``spot``; raises NoRatesError.
@@ -334,6 +389,32 @@ def _price_period(
     )
 
 
+def _tally(
+    tariff: Tariff,
+    totals: Totals,
+    start: datetime,
+    usage: Pending | Period,
+    spot: float | None,
+) -> tuple[float, float] | None:
+    """
+    Add a period's kWh, and its charges if it can be priced.
+
+    Returns the import cost and export earnings including GST, or None if
+    the period couldn't be priced.
+    """
+    row = totals.kwh.setdefault(_band(tariff, start), [0.0, 0.0])
+    row[0] += usage.import_kwh
+    row[1] += usage.export_kwh
+    if spot is None:
+        return None
+    try:
+        band, charges, cost, earnings = _price_period(tariff, start, usage, spot)
+    except NoRatesError:
+        return None
+    totals.charges.setdefault(band, Charges()).add(charges)
+    return cost, earnings
+
+
 class BillingMeter:
     """Meter energy per trading period and price it into billing cycles."""
 
@@ -349,13 +430,15 @@ class BillingMeter:
 
         ``sources`` names the meter read for each side. A stored reading from
         another meter is dropped, so the new meter starts from a baseline.
+        Without it, only the import meter is expected.
         """
         self.tariff = tariff
         self.cycle_day = cycle_day
         self.sources: dict[Side, str] = dict(sources or {})
+        self.sides: tuple[Side, ...] = tuple(self.sources) or ("import",)
         self.readings: dict[Side, Reading] = {}
-        # When metering began (or restarted): cycles are complete only if it
-        # began before their start.
+        # When every meter had a first reading (metering began, or restarted):
+        # cycles are complete only if it was before their start.
         self.since: datetime | None = None
         # Keyed by cycle start; only the current and previous cycles are kept.
         self.cycles: dict[date, Cycle] = {}
@@ -374,7 +457,8 @@ class BillingMeter:
             for side, r in data.get("readings", {}).items()
             if stored_sources.get(side) == self.sources.get(side)
         }
-        if data.get("since") and "import" in self.readings:
+        # A meter without a stored reading (new or changed) moves it on.
+        if data.get("since") and all(side in self.readings for side in self.sides):
             self.since = datetime.fromisoformat(data["since"])
         self.pending = {
             datetime.fromisoformat(p["start"]): Pending(
@@ -385,13 +469,60 @@ class BillingMeter:
         self.import_cost = data.get("import_cost", 0.0)
         self.export_earnings = data.get("export_earnings", 0.0)
         self.latest_spot = data.get("latest_spot")
-        # Cycles from another cycle day don't line up with this one's. The
-        # new ones are metered from the last reading on.
+
+        stored = data.get("cycles", [])
+        cycles = [Cycle.from_dict(c) for c in stored]
+        # Version 1 cycles counted pending energy when it was read; it's
+        # counted from the pending periods now.
+        from_v1 = [c for c, raw in zip(cycles, stored, strict=True) if "kwh" in raw]
+        for key, usage in self.pending.items():
+            cycle = next((c for c in from_v1 if self._holds(c, key)), None)
+            if cycle is not None and cycle.carried is not None:
+                row = cycle.carried.kwh.get(_band(self.tariff, key))
+                if row is not None:
+                    row[0] -= usage.import_kwh
+                    row[1] -= usage.export_kwh
         if data.get("cycle_day") == self.cycle_day:
-            cycles = (Cycle.from_dict(c) for c in data.get("cycles", []))
             self.cycles = {c.start: c for c in cycles}
+        elif cycles and all(c.carried is None for c in cycles):
+            self._rebucket(cycles)
         elif self.since is not None:
+            # Totals can't be split into other cycles: meter the new ones
+            # from the last reading on.
             self.since = max(r.at for r in self.readings.values())
+        for cycle in self.cycles.values():
+            self._retally(cycle)
+
+    def _rebucket(self, cycles: list[Cycle]) -> None:
+        """Move periods from another cycle day's cycles into this day's."""
+        covered = min(c.since for c in cycles)
+        for old in cycles:
+            for key, period in old.periods.items():
+                start = cycle_start(key.astimezone(NZ_TZ).date(), self.cycle_day)
+                cycle = self.cycles.get(start)
+                if cycle is None:
+                    since = max(nz_midnight(start), covered)
+                    cycle = self.cycles[start] = Cycle(start, since)
+                cycle.periods[key] = period
+        for old_start in sorted(self.cycles)[:-2]:
+            del self.cycles[old_start]
+
+    def _retally(self, cycle: Cycle) -> None:
+        """Price a cycle's periods at the meter's tariff."""
+        cycle.totals = cycle.carried.copy() if cycle.carried else Totals()
+        for key, period in sorted(cycle.periods.items()):
+            self._add_final(cycle.totals, key, period)
+
+    def _add_final(
+        self, totals: Totals, key: datetime, period: Period
+    ) -> tuple[float, float] | None:
+        """Add a final period to a cycle's totals; return its cost and earnings."""
+        priced = _tally(self.tariff, totals, key, period, period.spot)
+        if priced is None:
+            totals.unpriced_periods += 1
+        elif not period.settled:
+            totals.unsettled_periods += 1
+        return priced
 
     def as_dict(self) -> dict[str, Any]:
         """Return the meter's state for storage."""
@@ -413,13 +544,26 @@ class BillingMeter:
             "latest_spot": self.latest_spot,
         }
 
+    def _holds(self, cycle: Cycle, key: datetime) -> bool:
+        """Return True if the period starting at ``key`` is in ``cycle``."""
+        local = key.astimezone(NZ_TZ).date()
+        return cycle.start <= local < next_cycle_start(cycle.start)
+
     def _cycle_for(self, at: datetime) -> Cycle | None:
-        """Return the kept cycle containing ``at``, creating the current one."""
+        """
+        Return the kept cycle containing ``at``, creating it if it's due.
+
+        A cycle is created if it's the newest, or the one just before the
+        newest (energy read late, after a restart that skipped a cycle).
+        """
         start = cycle_start(at.astimezone(NZ_TZ).date(), self.cycle_day)
         if start in self.cycles:
             return self.cycles[start]
-        if self.cycles and start < max(self.cycles):
-            return None  # older than the kept cycles
+        if self.cycles:
+            newest = max(self.cycles)
+            before_newest = cycle_start(newest - timedelta(days=1), self.cycle_day)
+            if start < before_newest:
+                return None  # older than the kept cycles
         # Covered from its start if metering began before it.
         cycle = Cycle(start=start, since=max(nz_midnight(start), self.since or at))
         self.cycles[start] = cycle
@@ -429,8 +573,9 @@ class BillingMeter:
 
     def add_reading(self, side: Side, value: float, at: datetime) -> bool:
         """
-        Count a meter reading in kWh; return True if any energy was added.
+        Count a meter reading in kWh; return True if the bill may have changed.
 
+        That's when energy was added, or a meter's first reading was taken.
         The increase since the last reading is spread over the periods in
         between. A reading well below the last is a meter reset, so all of it
         is new; a small drop is ignored, keeping the higher baseline.
@@ -438,24 +583,26 @@ class BillingMeter:
         last = self.readings.get(side)
         if last is None:
             # The first reading is the baseline; make sure the cycle exists.
-            if self.since is None:
-                self.since = at
-            self._cycle_for(at)
             self.readings[side] = Reading(value, at)
-            return False
+            cycle = self._cycle_for(at)
+            if self.since is None and all(s in self.readings for s in self.sides):
+                self.since = at
+                if cycle is not None:
+                    cycle.since = max(cycle.since, at)
+            return True
         if value >= last.value:
             used = value - last.value
         elif value < last.value * RESET_FRACTION:
             used = value
         else:
             return False
+        # An unchanged reading moves the baseline on, so the next increase
+        # isn't spread back over time when nothing was used.
         self.readings[side] = Reading(value, at)
         if used <= 0:
             return False
         for start, kwh in spread(last.at, at, used):
-            cycle = self._cycle_for(start)
-            if cycle is not None:
-                cycle.add_kwh(_band(self.tariff, start), side, kwh)
+            self._cycle_for(start)
             usage = self.pending.setdefault(start, Pending())
             if side == "import":
                 usage.import_kwh += kwh
@@ -481,25 +628,21 @@ class BillingMeter:
         return self._finalise(start, usage, spot, settled=True)
 
     def _finalise(
-        self, start: datetime, usage: Pending, spot: float, *, settled: bool
+        self, start: datetime, usage: Pending, spot: float | None, *, settled: bool
     ) -> bool:
         if usage.import_kwh <= 0 and usage.export_kwh <= 0:
             return False
-        cycle = self._cycle_for(start)
-        try:
-            band, charges, cost, earnings = _price_period(
-                self.tariff, start, usage, spot
-            )
-        except NoRatesError:
-            if cycle is not None:
-                cycle.unpriced_periods += 1
-            return True
-        self.import_cost += cost
-        self.export_earnings += earnings
-        if cycle is not None:
-            cycle.charges.setdefault(band, Charges()).add(charges)
-            if not settled:
-                cycle.unsettled_periods += 1
+        key = start.astimezone(UTC)
+        period = Period(usage.import_kwh, usage.export_kwh, spot, settled)
+        if (cycle := self._cycle_for(key)) is not None:
+            cycle.periods[key] = period
+            priced = self._add_final(cycle.totals, key, period)
+        else:
+            # Too old for a kept cycle: it still counts in the lifetime totals.
+            priced = _tally(self.tariff, Totals(), key, period, spot)
+        if priced is not None:
+            self.import_cost += priced[0]
+            self.export_earnings += priced[1]
         return True
 
     def tick(self, now: datetime) -> bool:
@@ -511,19 +654,14 @@ class BillingMeter:
         changed = False
         start = cycle_start(now.astimezone(NZ_TZ).date(), self.cycle_day)
         # Without a reading there's nothing to meter a cycle from yet.
-        if self.since is not None and start not in self.cycles:
+        if self.readings and start not in self.cycles:
             self._cycle_for(now)
             changed = True
         cutoff = now.astimezone(UTC) - PROVISIONAL_LIMIT
         for key in [k for k in self.pending if k < cutoff]:
             usage = self.pending.pop(key)
             spot = usage.live_spot if usage.live_spot is not None else self.latest_spot
-            if spot is not None:
-                self._finalise(key, usage, spot, settled=False)
-            elif (cycle := self._cycle_for(key)) is not None and (
-                usage.import_kwh > 0 or usage.export_kwh > 0
-            ):
-                cycle.unpriced_periods += 1
+            self._finalise(key, usage, spot, settled=False)
             changed = True
         return changed
 
@@ -544,21 +682,16 @@ class BillingMeter:
         cycle = self.cycles[key]
         end = next_cycle_start(cycle.start)
 
-        charges = {band: Charges(**asdict(c)) for band, c in cycle.charges.items()}
+        totals = cycle.totals.copy()
         provisional = 0
-        for key, usage in self.pending.items():
-            local = key.astimezone(NZ_TZ).date()
-            if not cycle.start <= local < end:
+        for start, usage in sorted(self.pending.items()):
+            if not self._holds(cycle, start) or (
+                usage.import_kwh <= 0 and usage.export_kwh <= 0
+            ):
                 continue
             spot = usage.live_spot if usage.live_spot is not None else self.latest_spot
-            if spot is None or (usage.import_kwh <= 0 and usage.export_kwh <= 0):
-                continue
-            try:
-                band, priced, _, _ = _price_period(self.tariff, key, usage, spot)
-            except NoRatesError:
-                continue
-            charges.setdefault(band, Charges()).add(priced)
-            provisional += 1
+            if _tally(self.tariff, totals, start, usage, spot) is not None:
+                provisional += 1
 
         last_day = min(now.astimezone(NZ_TZ).date(), end - timedelta(days=1))
         daily = {"network": 0.0, "metering": 0.0, "retailer": 0.0}
@@ -581,10 +714,10 @@ class BillingMeter:
             complete=cycle.complete,
             days=days,
             daily=daily,
-            kwh={band: list(v) for band, v in cycle.kwh.items()},
-            charges=charges,
+            kwh=totals.kwh,
+            charges=totals.charges,
             provisional_periods=provisional,
-            unsettled_periods=cycle.unsettled_periods,
-            unpriced_periods=cycle.unpriced_periods,
+            unsettled_periods=totals.unsettled_periods,
+            unpriced_periods=totals.unpriced_periods,
             gst=self.tariff.gst,
         )

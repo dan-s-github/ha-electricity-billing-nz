@@ -330,10 +330,14 @@ class BillingEngine:
             )
         )
         if self.meter is not None:
+            meters = list(self.energy_entities.values())
             self._unsubscribers.append(
-                async_track_state_change_event(
-                    self.hass, list(self.energy_entities.values()), self._handle_energy
-                )
+                async_track_state_change_event(self.hass, meters, self._handle_energy)
+            )
+            # An unchanged reading moves the meter's baseline on, so the next
+            # increase isn't spread back over time when nothing was used.
+            self._unsubscribers.append(
+                async_track_state_report_event(self.hass, meters, self._handle_energy)
             )
             for side, entity_id in self.energy_entities.items():
                 self._read_energy(side, self.hass.states.get(entity_id))
@@ -389,17 +393,23 @@ class BillingEngine:
         async_dispatcher_send(self.hass, signal_updated(self.entry.entry_id))
 
     @callback
-    def _handle_energy(self, event: Event[EventStateChangedData]) -> None:
-        """Count a new energy meter reading."""
+    def _handle_energy(
+        self, event: Event[EventStateChangedData] | Event[EventStateReportedData]
+    ) -> None:
+        """Count a new or re-reported energy meter reading."""
         side = next(
             s for s, e in self.energy_entities.items() if e == event.data["entity_id"]
         )
         if self._read_energy(side, event.data["new_state"]):
             self._update_bill()
             async_dispatcher_send(self.hass, signal_updated(self.entry.entry_id))
+        elif self._save is not None:
+            # The reading may still have moved the baseline on; keep that
+            # over a restart. Pending saves are coalesced.
+            self._save()
 
     def _read_energy(self, side: Side, state: State | None) -> bool:
-        """Pass a usable reading to the meter; return True if energy was added."""
+        """Pass a usable reading to the meter; return True if the bill changed."""
         if self.meter is None or state is None or not _has_value(state):
             return False
         try:
@@ -408,7 +418,7 @@ class BillingEngine:
             )
         except ValueError:
             return False
-        return self.meter.add_reading(side, kwh, state.last_updated)
+        return self.meter.add_reading(side, kwh, state.last_reported)
 
     def _update_bill(self) -> None:
         """Recompute the cycle estimates and schedule a save."""

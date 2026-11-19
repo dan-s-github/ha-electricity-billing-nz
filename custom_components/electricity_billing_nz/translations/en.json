@@ -102,6 +102,7 @@
       "icp_in_use": "Another entry already uses this ICP number.",
       "icp_in_setup": "A setup that hasn't finished is using this ICP number. Finish or close it first.",
       "invalid_energy_unit": "The sensor's unit must be Wh, kWh or MWh.",
+      "not_cumulative": "The sensor must be a running total of energy (state class total or total_increasing).",
       "import_energy_required": "Choose an import meter to use an export meter."
     },
     "step": {

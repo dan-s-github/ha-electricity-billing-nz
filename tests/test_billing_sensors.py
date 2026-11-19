@@ -54,11 +54,15 @@ def billing_entry(hass: HomeAssistant) -> MockConfigEntry:
     return entry
 
 
-def _set_meter(hass: HomeAssistant, entity_id: str, kwh: float) -> None:
+def _set_meter(hass: HomeAssistant, entity_id: str, kwh: float | str) -> None:
     hass.states.async_set(
         entity_id,
         str(kwh),
-        {"unit_of_measurement": "kWh", "device_class": "energy"},
+        {
+            "unit_of_measurement": "kWh",
+            "device_class": "energy",
+            "state_class": "total_increasing",
+        },
     )
 
 
@@ -142,6 +146,51 @@ async def test_export_is_metered(
     assert _value(hass, EARNINGS) == pytest.approx(round(2 * 0.011 * 1.15, 4))
 
 
+async def test_unchanged_reading_moves_the_baseline(
+    hass: HomeAssistant,
+    billing_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+    hass_storage: dict[str, Any],
+) -> None:
+    """A meter re-reporting its value marks time when nothing was used."""
+    freezer.move_to(nz("2026-11-17 10:05"))
+    set_live(hass, 8.0, nz("2026-11-17 10:00"))
+    _set_meter(hass, IMPORT_METER, 100.0)
+    await _setup(hass, billing_entry)
+
+    freezer.move_to(nz("2026-11-17 12:00"))
+    _set_meter(hass, IMPORT_METER, 100.0)  # same value: a state report
+    await hass.async_block_till_done()
+    # The moved baseline is saved, so it holds over a restart.
+    freezer.tick(60)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    stored = hass_storage[f"{DOMAIN}.{billing_entry.entry_id}"]["data"]
+    assert stored["readings"]["import"]["at"].startswith("2026-11-16T23:00")
+    freezer.move_to(nz("2026-11-17 12:20"))
+    _set_meter(hass, IMPORT_METER, 101.0)
+    await hass.async_block_till_done()
+
+    # All of it in the 12:00 period, none spread back to 10:05.
+    assert hass.states.get(TOTAL).attributes["provisional_periods"] == 1
+
+
+async def test_first_reading_after_setup_starts_the_bill(
+    hass: HomeAssistant,
+    billing_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A meter unavailable at setup starts the cycle on its first reading."""
+    freezer.move_to(nz("2026-11-17 10:05"))
+    _set_meter(hass, IMPORT_METER, "unavailable")
+    await _setup(hass, billing_entry)
+    assert hass.states.get(TOTAL).state == "unavailable"
+
+    _set_meter(hass, IMPORT_METER, 100.0)
+    await hass.async_block_till_done()
+    assert _value(hass, TOTAL) == pytest.approx(round(DAILY * 1.15, 2))
+
+
 async def test_meter_survives_a_reload(
     hass: HomeAssistant,
     billing_entry: MockConfigEntry,
@@ -186,6 +235,8 @@ async def test_meter_is_loaded_from_storage(
     freezer.move_to(nz("2026-11-17 10:05"))
     await _setup(hass, billing_entry)
 
+    # Version 1 storage is read and rewritten as version 2.
+    assert hass_storage[f"{DOMAIN}.{billing_entry.entry_id}"]["version"] == 2
     assert _value(hass, ENERGY) == pytest.approx(3.0)
     assert hass.states.get(TOTAL).attributes["complete"] is True
 
@@ -252,7 +303,11 @@ async def test_options_turn_billing_on(
 ) -> None:
     """Choosing the meters and cycle day sets billing up."""
     _set_meter(hass, IMPORT_METER, 100.0)
-    hass.states.async_set(EXPORT_METER, "5000", {"unit_of_measurement": "Wh"})
+    hass.states.async_set(
+        EXPORT_METER,
+        "5000",
+        {"unit_of_measurement": "Wh", "state_class": "total_increasing"},
+    )
     result = await _billing_options(hass, config_entry)
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "billing"
@@ -295,6 +350,10 @@ async def test_options_turn_billing_on(
             {"import_energy_entity": "sensor.missing"},
             {"import_energy_entity": "entity_not_found"},
         ),
+        (
+            {"import_energy_entity": "sensor.energy_reading"},
+            {"import_energy_entity": "not_cumulative"},
+        ),
     ],
 )
 async def test_options_billing_errors(
@@ -303,16 +362,41 @@ async def test_options_billing_errors(
     values: dict[str, str],
     errors: dict[str, str],
 ) -> None:
-    """The meters must exist, read energy, differ, and include import."""
+    """The meters must exist, be energy totals, differ, and include import."""
     _set_meter(hass, IMPORT_METER, 100.0)
     _set_meter(hass, EXPORT_METER, 5.0)
     hass.states.async_set("sensor.power", "300", {"unit_of_measurement": "W"})
+    hass.states.async_set(
+        "sensor.energy_reading",
+        "3",
+        {"unit_of_measurement": "kWh", "state_class": "measurement"},
+    )
     result = await _billing_options(hass, config_entry)
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {**values, "billing_cycle_day": 1}
     )
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == errors
+
+
+async def test_options_keep_a_meter_without_a_state_class(
+    hass: HomeAssistant, billing_entry: MockConfigEntry
+) -> None:
+    """A meter already in use isn't re-checked, so the cycle day can change."""
+    hass.states.async_set(IMPORT_METER, "100", {"unit_of_measurement": "kWh"})
+    _set_meter(hass, EXPORT_METER, 5.0)
+    result = await _billing_options(hass, billing_entry)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "import_energy_entity": IMPORT_METER,
+            "export_energy_entity": EXPORT_METER,
+            "billing_cycle_day": 15,
+        },
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert billing_entry.options["billing_cycle_day"] == 15
 
 
 async def test_options_turn_billing_off(

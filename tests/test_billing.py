@@ -110,7 +110,8 @@ def _meter(cycle_day: int = 1) -> BillingMeter:
 def test_first_reading_is_the_baseline() -> None:
     """The first reading starts the meter without counting any energy."""
     meter = _meter()
-    assert not meter.add_reading("import", 120.0, nz("2026-11-17 10:00"))
+    # It starts the cycle, so the bill changes.
+    assert meter.add_reading("import", 120.0, nz("2026-11-17 10:00"))
     bill = meter.bill(nz("2026-11-17 10:05"))
     assert bill is not None
     assert bill.import_kwh == 0
@@ -314,7 +315,7 @@ def test_changed_meter_starts_from_a_baseline() -> None:
     meter.add_reading("import", 1200.0, nz("2026-11-17 10:00"))
 
     loaded = BillingMeter(TARIFF, 1, meter.as_dict(), sources={"import": "meter_b"})
-    assert not loaded.add_reading("import", 25000.0, nz("2026-11-17 10:30"))
+    loaded.add_reading("import", 25000.0, nz("2026-11-17 10:30"))
     bill = loaded.bill(nz("2026-11-17 10:30"))
     assert bill is not None
     assert bill.import_kwh == 0
@@ -352,25 +353,148 @@ def test_storage_round_trip() -> None:
     assert loaded.bill(now) == meter.bill(now)
 
 
-def test_changed_cycle_day_drops_the_cycles() -> None:
-    """Cycles from another cycle day are dropped; readings and totals stay."""
+def test_changed_cycle_day_moves_the_periods() -> None:
+    """Periods move to the new cycle day's cycles, kWh and charges together."""
     meter = _meter(cycle_day=15)
-    meter.add_reading("import", 0.0, nz("2026-11-17 10:00"))
-    meter.add_reading("import", 1.0, nz("2026-11-17 10:30"))
-    meter.settle(nz("2026-11-17 10:00"), 0.10)
+    meter.add_reading("import", 0.0, nz("2026-11-14 22:00"))
+    meter.add_reading("import", 1.0, nz("2026-11-14 22:30"))
+    meter.settle(nz("2026-11-14 22:00"), 0.10)
+    meter.add_reading("import", 1.0, nz("2026-11-17 10:00"))
+    meter.set_live_spot(nz("2026-11-17 10:00"), 0.12)
+    meter.add_reading("import", 3.0, nz("2026-11-17 10:30"))
 
     loaded = BillingMeter(TARIFF, 1, meter.as_dict())
-    assert loaded.cycles == {}
+    assert sorted(loaded.cycles) == [date(2026, 11, 1)]
     assert loaded.import_cost == meter.import_cost
     assert loaded.readings == meter.readings
+    bill = loaded.bill(nz("2026-11-17 10:40"))
+    assert bill is not None
+    # Covered from when the old cycles were, not from the 1st.
+    assert not bill.complete
+    assert bill.days == 4
+    assert bill.import_kwh == pytest.approx(3.0)
+    assert bill.charges["offpeak"].import_kwh == pytest.approx(3.0)
+    assert bill.provisional_periods == 1
 
-    # The new cycle is metered from the last reading, so it's incomplete.
-    loaded.add_reading("import", 2.0, nz("2026-11-17 11:00"))
-    bill = loaded.bill(nz("2026-11-17 11:00"))
+
+def test_changed_cycle_day_drops_carried_totals() -> None:
+    """Totals stored without periods can't move, so the new cycle starts over."""
+    stored = _meter(cycle_day=15)
+    stored.add_reading("import", 0.0, nz("2026-11-17 10:00"))
+    data = stored.as_dict()
+    data["cycles"] = [_stored_1_1_cycle("2026-11-15", "2026-11-15T00:00:00+13:00")]
+
+    loaded = BillingMeter(TARIFF, 1, data)
+    assert loaded.cycles == {}
+    loaded.add_reading("import", 1.0, nz("2026-11-17 10:30"))
+    bill = loaded.bill(nz("2026-11-17 10:30"))
     assert bill is not None
     assert bill.start == date(2026, 11, 1)
     assert not bill.complete
     assert bill.import_kwh == pytest.approx(1.0)
+
+
+def _stored_1_1_cycle(start: str, since: str, kwh: float = 0.0) -> dict:
+    """Return a cycle as storage 1.1 kept it: totals, no periods."""
+    return {
+        "start": start,
+        "since": since,
+        "kwh": {"offpeak": [kwh, 0.0]},
+        "charges": {"offpeak": {"import_kwh": kwh, "energy": 0.5}},
+        "unsettled_periods": 0,
+        "unpriced_periods": 0,
+    }
+
+
+def test_1_1_cycle_is_carried_over() -> None:
+    """A 1.1 cycle keeps its totals; energy still pending isn't counted twice."""
+    meter = _meter()
+    meter.add_reading("import", 0.0, nz("2026-11-17 10:00"))
+    meter.add_reading("import", 1.0, nz("2026-11-17 10:30"))
+    data = meter.as_dict()
+    # 1.1 counted the pending 1 kWh in the cycle when it was read.
+    data["cycles"] = [
+        _stored_1_1_cycle("2026-11-01", "2026-11-01T00:00:00+13:00", kwh=3.0)
+    ]
+
+    loaded = BillingMeter(TARIFF, 1, data)
+    bill = loaded.bill(nz("2026-11-17 10:40"))
+    assert bill is not None
+    assert bill.complete
+    assert bill.import_kwh == pytest.approx(3.0)
+    assert bill.charges["offpeak"].energy == pytest.approx(0.5)
+    assert (
+        BillingMeter(TARIFF, 1, loaded.as_dict()).bill(nz("2026-11-17 10:40")) == bill
+    )
+
+
+def test_rate_change_dated_into_the_cycle_reprices_it() -> None:
+    """A retailer version added later reprices the cycle's final periods."""
+    meter = _meter()
+    meter.add_reading("import", 0.0, nz("2026-11-17 10:00"))
+    meter.add_reading("import", 2.0, nz("2026-11-17 10:30"))
+    meter.settle(nz("2026-11-17 10:00"), 0.10)
+    cost = meter.import_cost
+
+    raised = {**ECOTRICITY, "effective_from": "2026-11-10", "import_margin": 0.03}
+    tariff = build_tariff(
+        load_networks(NETWORK_SNAPSHOT)["vector"],
+        entry_data(),
+        {"retailer_versions": [ECOTRICITY, raised]},
+    )
+    loaded = BillingMeter(tariff, 1, meter.as_dict())
+    bill = loaded.bill(nz("2026-11-17 10:40"))
+    assert bill is not None
+    assert bill.charges["offpeak"].energy == pytest.approx((0.10 + 0.03) * LOSS * 2)
+    # The lifetime totals are what each period cost when it settled.
+    assert loaded.import_cost == cost
+
+
+def test_catch_up_creates_the_skipped_cycle() -> None:
+    """Energy read after HA was down for a whole cycle still fills that cycle."""
+    meter = _meter()
+    last = nz("2026-10-20 12:00")
+    meter.add_reading("import", 0.0, last)
+    now = nz("2026-12-01 00:05")
+    meter.tick(now)  # December starts before the meter reports
+    assert sorted(meter.cycles) == [date(2026, 10, 1), date(2026, 12, 1)]
+
+    meter.add_reading("import", 100.0, now)
+    assert sorted(meter.cycles) == [date(2026, 11, 1), date(2026, 12, 1)]
+    previous = meter.bill(now, previous=True)
+    assert previous is not None
+    assert previous.start == date(2026, 11, 1)
+    november = nz("2026-12-01 00:00") - nz("2026-11-01 00:00")
+    assert previous.import_kwh == pytest.approx(100.0 * (november / (now - last)))
+
+
+def test_unchanged_reading_moves_the_baseline() -> None:
+    """After a reading that hasn't changed, energy is spread from it, not before."""
+    meter = _meter()
+    meter.add_reading("import", 5.0, nz("2026-11-17 10:00"))
+    assert not meter.add_reading("import", 5.0, nz("2026-11-17 12:00"))
+    meter.add_reading("import", 6.0, nz("2026-11-17 12:30"))
+    assert list(meter.pending) == [utc("2026-11-17 12:00")]
+
+
+def test_cycle_is_complete_only_once_every_meter_was_read() -> None:
+    """A meter first read after the cycle began leaves the cycle incomplete."""
+    sources = {"import": "meter_a", "export": "meter_b"}
+    meter = BillingMeter(TARIFF, 1, sources=sources)
+    meter.add_reading("export", 0.0, nz("2026-10-31 23:00"))
+    meter.tick(nz("2026-11-01 00:00"))
+    meter.add_reading("import", 0.0, nz("2026-11-01 12:00"))
+    bill = meter.bill(nz("2026-11-01 12:05"))
+    assert bill is not None
+    assert meter.since == nz("2026-11-01 12:00")
+    assert not bill.complete
+
+    # A meter added later moves the coverage on too.
+    sources["export"] = "meter_c"
+    loaded = BillingMeter(TARIFF, 1, meter.as_dict(), sources=sources)
+    assert loaded.since is None
+    loaded.add_reading("export", 0.0, nz("2026-11-02 08:00"))
+    assert loaded.cycles[date(2026, 11, 1)].since == nz("2026-11-02 08:00")
 
 
 def test_cycle_complete_when_metered_from_its_start() -> None:

@@ -6,6 +6,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Any
 
 import probatio
+from homeassistant.components.sensor import ATTR_STATE_CLASS, SensorStateClass
 from homeassistant.config_entries import (
     ConfigFlow,
     ConfigFlowResult,
@@ -92,6 +93,7 @@ CYCLE_DAY_SELECTOR = NumberSelector(
     )
 )
 ENERGY_KEYS = (CONF_IMPORT_ENERGY_ENTITY, CONF_EXPORT_ENERGY_ENTITY)
+CUMULATIVE_STATE_CLASSES = (SensorStateClass.TOTAL, SensorStateClass.TOTAL_INCREASING)
 CENTS_SELECTOR = NumberSelector(
     NumberSelectorConfig(
         min=-100,
@@ -293,7 +295,7 @@ def _validate_sources(
 def _validate_energy(
     flow: OptionsFlowWithReload, user_input: Mapping[str, Any]
 ) -> dict[str, str]:
-    """Check the energy meters exist, read energy, and differ."""
+    """Check the energy meters exist, read running totals of energy, and differ."""
     errors: dict[str, str] = {}
     if user_input.get(CONF_EXPORT_ENERGY_ENTITY) and not user_input.get(
         CONF_IMPORT_ENERGY_ENTITY
@@ -314,6 +316,16 @@ def _validate_energy(
             to_kwh(0.0, state.attributes.get(ATTR_UNIT_OF_MEASUREMENT))
         except ValueError:
             errors[key] = "invalid_energy_unit"
+            continue
+        # Only a running total can be read as energy used between readings.
+        # A meter already in use is left alone, so the cycle day can change.
+        stored = flow.config_entry.options.get(key)
+        if state.attributes.get(
+            ATTR_STATE_CLASS
+        ) not in CUMULATIVE_STATE_CLASSES and not (
+            stored and resolve_source(flow.hass, stored) == entity_id
+        ):
+            errors[key] = "not_cumulative"
     return errors
 
 

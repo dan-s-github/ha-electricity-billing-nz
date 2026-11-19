@@ -158,6 +158,8 @@ When a rate changes later, open the entry's **Configure** menu:
   sensor is fixed; to change it, re-add the entry.
 - **Billing cycle**: the grid import and export energy sensors (Wh, kWh or
   MWh) and the day of the month your bill starts on (1 to 28). See below.
+  The meters must be running totals (state class `total` or
+  `total_increasing`), like the ones the Energy dashboard uses.
 - **ICP number**.
 - **GST**: whether the reported prices include GST. Changing it moves the
   price history by 15% from then on, and `price_at` uses the current setting
@@ -192,16 +194,25 @@ the bill's half-hourly pricing.
 - A period with no settled price after 48 hours keeps the live price and is
   counted in `unsettled_periods`.
 - The cycle that was running when you set billing up is partial: the total's
-  `complete` attribute is false until the first full cycle.
+  `complete` attribute is false until the first full cycle. The same goes
+  for a meter added during a cycle.
 - Bills use the final wholesale prices, published days later; the settled
   prices are interim, so expect small differences.
 - The estimate includes GST unless the entry's GST option is off.
 - The meter is stored with the entry and survives restarts. A gap while Home
   Assistant was down is shared evenly over the periods it covers.
+- Energy between two readings is shared evenly over the time between them.
+  A meter that reports its unchanged value marks time when nothing was used;
+  one that only reports changes (some cloud statistics do, in coarse steps)
+  has its energy spread back to the last change.
+- A rate version or network override dated into the current or previous
+  cycle reprices it when saved. The lifetime cost and earnings totals keep
+  what each period cost when it settled.
 - A reading more than 10% below the last one is a meter reset (e.g. a daily
   total); a smaller drop is ignored.
 - Changing a meter starts it from a new baseline. Changing the cycle day
-  starts new cycles, marked incomplete until the next full one.
+  moves the kept periods into the new day's cycles; the earliest is marked
+  incomplete.
 
 ## Not in scope
 
