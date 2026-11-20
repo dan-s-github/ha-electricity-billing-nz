@@ -135,7 +135,7 @@ Update `strings.json` and `translations/en.json` together; `tests/test_translati
 - `export_versions` (planned for Phase 2, shipped early) returns the merged versions as a YAML string.
 - Add `services.yaml` and service strings.
 
-## Step 7: tests (pytest-homeassistant-custom-component; extend `tests/conftest.py`)
+## Step 7: tests (pytest-homeassistant; extend `tests/conftest.py`)
 
 - `test_tariff.py`: a parametrised table of `(period_start, spot) → expected import/export`, hand-computed from the spec's constants with the margin. Covers:
   - Jun 07:00 and 17:00 peak, May 07:00 off-peak, and Oct–Apr with no credit

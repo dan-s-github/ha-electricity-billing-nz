@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.electricity_billing_nz.const import (
     CONF_DISTRIBUTOR,
@@ -42,11 +42,6 @@ ECOTRICITY = {
     "metering_daily": 0.35,
     "retailer_daily": 0.15,
 }
-
-
-@pytest.fixture(autouse=True)
-def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
-    """Enable loading integrations from custom_components in tests."""
 
 
 # A frozen copy of the bundled network data the tests are written against,
