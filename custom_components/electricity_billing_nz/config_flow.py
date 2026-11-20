@@ -6,6 +6,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Any
 
 import probatio
+from homeassistant.components.sensor import ATTR_STATE_CLASS, SensorStateClass
 from homeassistant.config_entries import (
     ConfigFlow,
     ConfigFlowResult,
@@ -29,13 +30,17 @@ from homeassistant.helpers.selector import (
 )
 from homeassistant.util import dt as dt_util
 
+from .billing import to_kwh
 from .const import (
+    CONF_BILLING_CYCLE_DAY,
     CONF_DISTRIBUTOR,
     CONF_EFFECTIVE_FROM,
+    CONF_EXPORT_ENERGY_ENTITY,
     CONF_EXPORT_FLOOR,
     CONF_FORECAST_ENTITY,
     CONF_GST_INCLUSIVE,
     CONF_ICP,
+    CONF_IMPORT_ENERGY_ENTITY,
     CONF_LIVE_ENTITY,
     CONF_LOSS_CATEGORY,
     CONF_NETWORK_OVERRIDES,
@@ -43,8 +48,10 @@ from .const import (
     CONF_PRICE_CATEGORY,
     CONF_RETAILER_VERSIONS,
     CONF_SETTLED_ENTITY,
+    DEFAULT_BILLING_CYCLE_DAY,
     DOMAIN,
     FIRST_EFFECTIVE_FROM,
+    MAX_BILLING_CYCLE_DAY,
     RETAILER_DAILY_FIELDS,
     RETAILER_PER_KWH_FIELDS,
 )
@@ -77,6 +84,16 @@ if TYPE_CHECKING:
 STORE_DIGITS = 8
 
 SENSOR_SELECTOR = EntitySelector(EntitySelectorConfig(domain="sensor"))
+ENERGY_SELECTOR = EntitySelector(
+    EntitySelectorConfig(domain="sensor", device_class="energy")
+)
+CYCLE_DAY_SELECTOR = NumberSelector(
+    NumberSelectorConfig(
+        min=1, max=MAX_BILLING_CYCLE_DAY, step=1, mode=NumberSelectorMode.BOX
+    )
+)
+ENERGY_KEYS = (CONF_IMPORT_ENERGY_ENTITY, CONF_EXPORT_ENERGY_ENTITY)
+CUMULATIVE_STATE_CLASSES = (SensorStateClass.TOTAL, SensorStateClass.TOTAL_INCREASING)
 CENTS_SELECTOR = NumberSelector(
     NumberSelectorConfig(
         min=-100,
@@ -272,6 +289,43 @@ def _validate_sources(
         elif error := _validate_price_entity(flow, entity_id):
             errors[key] = error
         seen.add(entity_id)
+    return errors
+
+
+def _validate_energy(
+    flow: OptionsFlowWithReload, user_input: Mapping[str, Any]
+) -> dict[str, str]:
+    """Check the energy meters exist, read running totals of energy, and differ."""
+    errors: dict[str, str] = {}
+    if user_input.get(CONF_EXPORT_ENERGY_ENTITY) and not user_input.get(
+        CONF_IMPORT_ENERGY_ENTITY
+    ):
+        errors[CONF_IMPORT_ENERGY_ENTITY] = "import_energy_required"
+    if user_input.get(CONF_IMPORT_ENERGY_ENTITY) and user_input.get(
+        CONF_IMPORT_ENERGY_ENTITY
+    ) == user_input.get(CONF_EXPORT_ENERGY_ENTITY):
+        errors[CONF_EXPORT_ENERGY_ENTITY] = "duplicate_source"
+    for key in ENERGY_KEYS:
+        if key in errors or not (entity_id := user_input.get(key)):
+            continue
+        state = flow.hass.states.get(entity_id)
+        if state is None:
+            errors[key] = "entity_not_found"
+            continue
+        try:
+            to_kwh(0.0, state.attributes.get(ATTR_UNIT_OF_MEASUREMENT))
+        except ValueError:
+            errors[key] = "invalid_energy_unit"
+            continue
+        # Only a running total can be read as energy used between readings.
+        # A meter already in use is left alone, so the cycle day can change.
+        stored = flow.config_entry.options.get(key)
+        if state.attributes.get(
+            ATTR_STATE_CLASS
+        ) not in CUMULATIVE_STATE_CLASSES and not (
+            stored and resolve_source(flow.hass, stored) == entity_id
+        ):
+            errors[key] = "not_cumulative"
     return errors
 
 
@@ -513,6 +567,7 @@ class OptionsFlowHandler(OptionsFlowWithReload):
                 "add_retailer_version",
                 "add_network_override",
                 "sources",
+                "billing",
                 "connection",
                 "gst",
             ],
@@ -613,6 +668,51 @@ class OptionsFlowHandler(OptionsFlowWithReload):
             ),
             errors=errors,
             description_placeholders=placeholders,
+        )
+
+    async def async_step_billing(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose the energy meters and the cycle day for the billing cycle."""
+        options = self.config_entry.options
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            errors = _validate_energy(self, user_input)
+            if not errors:
+                new = {k: v for k, v in options.items() if k not in ENERGY_KEYS}
+                new.update(
+                    {
+                        k: source_id(self.hass, user_input[k])
+                        for k in ENERGY_KEYS
+                        if user_input.get(k)
+                    }
+                )
+                new[CONF_BILLING_CYCLE_DAY] = int(user_input[CONF_BILLING_CYCLE_DAY])
+                return self.async_create_entry(data=new)
+
+        current: dict[str, Any] = {
+            k: resolve_source(self.hass, options[k])
+            for k in ENERGY_KEYS
+            if options.get(k)
+        }
+        current[CONF_BILLING_CYCLE_DAY] = options.get(
+            CONF_BILLING_CYCLE_DAY, DEFAULT_BILLING_CYCLE_DAY
+        )
+        return self.async_show_form(
+            step_id="billing",
+            data_schema=self.add_suggested_values_to_schema(
+                probatio.Schema(
+                    {
+                        probatio.Optional(CONF_IMPORT_ENERGY_ENTITY): ENERGY_SELECTOR,
+                        probatio.Optional(CONF_EXPORT_ENERGY_ENTITY): ENERGY_SELECTOR,
+                        probatio.Required(
+                            CONF_BILLING_CYCLE_DAY, default=DEFAULT_BILLING_CYCLE_DAY
+                        ): CYCLE_DAY_SELECTOR,
+                    }
+                ),
+                user_input or current,
+            ),
+            errors=errors,
         )
 
     async def async_step_connection(

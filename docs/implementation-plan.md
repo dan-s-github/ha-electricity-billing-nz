@@ -132,10 +132,10 @@ Update `strings.json` and `translations/en.json` together; `tests/test_translati
 ## Step 6: services (`services.py`, registered in `async_setup`)
 
 - `price_at(config_entry_id, timestamp, spot, spot_unit="NZD/kWh")` uses `SupportsResponse.ONLY` and returns `{import_price, export_price, breakdown}`. It uses the versions in force at that time.
-- `export_versions` is **Phase 2**, but cheap. It returns the merged versions as a YAML string.
+- `export_versions` (planned for Phase 2, shipped early) returns the merged versions as a YAML string.
 - Add `services.yaml` and service strings.
 
-## Step 7: tests (pytest-homeassistant-custom-component; extend `tests/conftest.py`)
+## Step 7: tests (pytest-homeassistant; extend `tests/conftest.py`)
 
 - `test_tariff.py`: a parametrised table of `(period_start, spot) → expected import/export`, hand-computed from the spec's constants with the margin. Covers:
   - Jun 07:00 and 17:00 peak, May 07:00 off-peak, and Oct–Apr with no credit
@@ -162,12 +162,109 @@ Update `strings.json` and `translations/en.json` together; `tests/test_translati
   - Have `backtest.py` call `price_at` or import `tariff.py`.
   - Then delete the duplicated constants.
 
+## Phase 2: billing cycle (built)
+
+Built as planned, in `billing.py` and `tests/test_billing.py` / `tests/test_billing_sensors.py`. Differences from the plan:
+- The import cost and export earnings totals count periods once they're final (settled, or after 48 h), so they lag about a period; the cycle estimate includes provisional periods.
+- The meter ticks (new cycle, overdue periods) on every bill update, not on the boundary timer alone: the timer passes its scheduled time, not now.
+- A period without any spot (no live source and no settled price yet) is metered but not priced, and counts in `unpriced_periods`.
+
+Goal: estimate the bill for the current billing cycle, line by line, so it can be checked against the invoice. This replaces these parts of `electricity_pricing.yaml`:
+- the `grid_import_billing` / `grid_export_billing` utility meters (split by band) and the automation that switches their tariff
+- the `electricity_import_cost_total` / `electricity_export_earnings_total` accumulators and their `*_billing` meters
+- the `billing_cycle_import_energy_rate` / `_export_energy_rate` templates
+
+`export_versions` was planned here but shipped in Phase 1.
+
+### Before starting: the template package on ha-dev, from a switch-over branch
+
+The parity checks for Phase 1 (Verification 3) and Phase 2 (Step 6) need the template package running on ha-dev next to the integration.
+
+1. **Branch.** `integration-switch-over` in `electricity-pricing`, cut from `ecotricity-margin` once its margin edits were committed (they are the parity reference).
+2. **Phase 1 switch-over on that branch (Step 8, first part).** `electricity_import_price`, `_export_price`, `_import_price_live`, `electricity_fixed_daily_charge` and `vector_peak_period` keep their unique ids and become aliases of the integration's entities (config entry "Home", so `sensor.home_*`). That way history, the dashboard, the accumulators, the billing meters and EMHASS keep working. The old formulas stay as `*_template` sensors for the comparison, to be deleted after it.
+3. **Install on ha-dev.** It goes in `/config/packages/electricity_pricing.yaml`: ha-dev loads `packages/`, while the Pi loads `integrations/`. Check the config, then do a full restart; utility meters don't load on a template reload. Don't install `emhass.yaml` on ha-dev.
+4. **Entity ids differ on ha-dev.** The Alpha ESS entities are `*.alpha_ess_energy_statistics_al2002118050331_al2002118050331_*` instead of `*.al2002118050331_*`; the package builds `sensor.grid_import_energy` / `_export_energy` from them itself. ha-dev has no charge-time entities and no Solcast, Helios or Forecast.Solar, so the charge-window and solar-forecast templates fall back or stay unavailable there.
+5. **Keep ha-dev away from the inverter.** ha-dev's Alpha ESS integration reaches the real inverter (`bathighcap`, the charge-schedule buttons).
+   - `tools/deploy-dev.sh` in `electricity-pricing` drops the `battery_*` automations (ruamel.yaml, keeping comments) and maps the ids from step 4.
+   - It refuses to copy if any `number.set_value`, `switch.turn_on` / `turn_off` or `time.set_value` is left.
+   - It then copies the file over `ssh ha-dev`, checks the config through the API and, with `--restart`, restarts.
+6. **Margins on ha-dev.** The "Home" entry has 0 import and export margins. For parity it needs a retailer version with +2.86 c import and −1.90 c export.
+
+### Options (no migration; billing is off until an import energy entity is set)
+
+- `import_energy_entity` and `export_energy_entity?`: sensors with an energy unit and `state_class` `total` or `total_increasing`. Store them by registry id, like the price sources.
+- `billing_cycle_day`: 1–28, default 1. A cycle runs from local midnight on that day to the same day next month. Days 29–31 are left out because short months have no such day.
+- New options menu item `billing`. The config flow doesn't ask for these, to keep setup short.
+
+### Metering and pricing (`billing.py`, no HA imports)
+
+The template accumulators multiply each kWh by the settled price shown at that moment. That price lags one period and ignores band changes. Instead, give each trading period its own energy and price it at that period's settled spot:
+- **Readings to periods.**
+  - Each energy state change adds `new − last_reading` to the trading periods since the previous reading, spread in proportion to time. A gap after a restart is spread over the periods it covers rather than landing in one.
+  - `last_reading` is restored across restarts, as in the template.
+  - A falling reading counts as a meter reset, so the increment is `new`.
+  - Unavailable states are skipped, and the next good reading catches up.
+- **Pricing.**
+  - A period's energy is priced when the settled source reports that period: from the state when its `timestamp` matches, otherwise from its `history[]`.
+  - Each pricing goes through `price_import` / `price_export` with the versions in force at the period start, so a version that changes mid-cycle is handled.
+  - Periods still waiting for a price are counted at the live price for that period (stored when it arrived) and flagged as provisional.
+  - After 48 h without a settled price, the provisional price becomes final and the period is counted in `unsettled_periods`.
+- **Cycle totals, ex GST, per band.**
+  - Import: kWh, kWh with losses, energy (`(spot + margin) × loss`), network, transmission and levy.
+  - Export: kWh, spot plus margin (floored), and the network export credit.
+  - Daily charges are added per day of the cycle, each at the rate in force that day. GST is applied once, at the end.
+- **Rollover.** At the cycle start, the totals move to `previous_cycle`. Periods from the old cycle that are still pending are priced into `previous_cycle` when they settle.
+- **DST.** A 23 h or 25 h day has 46 or 50 periods, so periods are keyed by their UTC start.
+
+### Persistence
+
+One `helpers.storage.Store` per entry (`electricity_billing_nz.<entry_id>`) holds:
+- the cycle start
+- the totals and `previous_cycle`
+- the pending periods, with their energy and provisional price
+- the last readings
+- the lifetime totals
+
+It is saved with `async_delay_save` (30 s) and on stop, and removed in `async_remove_entry`.
+
+### Engine
+
+`BillingEngine` gets a `BillingMeter`, created only when billing is configured. It:
+- subscribes to the energy entities
+- hands each newly settled period (`period_start`, spot) to the meter
+- schedules a timer for the cycle start
+- sends the existing update signal
+
+### Sensors (created only when billing is configured)
+
+| Entity | Unit / class | Notes |
+| --- | --- | --- |
+| `billing_cycle_import_energy`, `billing_cycle_export_energy` | kWh, `total`, `last_reset` = cycle start | attributes: kWh per band, per invoice line |
+| `billing_cycle_import_energy_rate` | NZD/kWh ex GST | energy ÷ kWh with losses, same definition as the template |
+| `billing_cycle_export_energy_rate` | NZD/kWh ex GST | export earnings without the network credit ÷ kWh, same definition as the template |
+| `billing_cycle_estimated_total` | NZD, per `gst_inclusive` | attributes are the invoice lines: days × each daily charge, kWh × rate per band for network and energy, levy, export, GST, plus `provisional_periods`, `unsettled_periods`, `cycle_start`, `cycle_end` and `previous_cycle` |
+| `import_cost_total`, `export_earnings_total` | NZD, `total` (it can fall when prices are negative) | lifetime totals that replace the template accumulators; the daily meters in `electricity_pricing.yaml` can point at them |
+
+### Not in Phase 2
+
+- Backfill. A cycle that starts after billing is set up is partial, and `billing_cycle_estimated_total` says so with `complete: false`. Rebuilding it from recorder statistics is possible but would need the settled history for the whole cycle.
+- Final prices. Invoices use the final prices, published days later; the settled source gives interim ones. Expect small differences, and note them in the README.
+
+### Steps
+
+1. `billing.py` and `tests/test_billing.py`. Cover:
+   - spreading readings across periods, meter resets and unavailable readings
+   - provisional, then settled, then the 48 h fallback
+   - a version change mid-cycle, rollover with late settlements, and DST days
+   - the cycle day landing on the 28th
+2. Store and engine wiring. Test restarts with pending periods and the cycle timer.
+3. The `billing` options step, `strings.json` and `translations/en.json`.
+4. The sensors, then README and this plan.
+5. Cutover PR in `electricity-pricing`: remove the parts listed above and point the daily meters and the dashboard at the new entities.
+6. Verification: run it next to the templates for one billing cycle, then compare `billing_cycle_estimated_total`'s lines with the invoice. Expect differences only from final versus interim prices.
+
 ## Later phases (outline only)
 
-- **Phase 2:**
-  - `billing_cycle_import_energy_rate` / `_export_energy_rate` and `billing_cycle_estimated_total`, moved from `electricity_pricing.yaml`. They need energy-entity options, or internal utility meters split by band.
-  - The `billing_cycle_day` option.
-  - `export_versions`.
 - **Phase 3:** more `networks/*.yaml` (Orion, Wellington Electricity, Powerco, Unison), using weekday and holiday band rules, then the marketplace release.
 
 ## Keeping network data current (semi-automatic)
