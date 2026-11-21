@@ -160,7 +160,9 @@ When a rate changes later, open the entry's **Configure** menu:
 - **Billing cycle**: the grid import and export energy sensors (Wh, kWh or
   MWh) and the day of the month your bill starts on (1 to 28). See below.
   The meters must be running totals (state class `total` or
-  `total_increasing`), like the ones the Energy dashboard uses.
+  `total_increasing`), like the ones the Energy dashboard uses, and must
+  update at least every half hour (see
+  [Choosing the energy meters](#choosing-the-energy-meters)).
 - **ICP number**.
 - **GST**: whether the reported prices include GST. Changing it moves the
   price history by 15% from then on, and `price_at` uses the current setting
@@ -204,8 +206,8 @@ the bill's half-hourly pricing.
   Assistant was down is shared evenly over the periods it covers.
 - Energy between two readings is shared evenly over the time between them.
   A meter that reports its unchanged value marks time when nothing was used;
-  one that only reports changes (some cloud statistics do, in coarse steps)
-  has its energy spread back to the last change.
+  one that only reports changes has its energy spread back to the last
+  change.
 - A rate version or network override dated into the current or previous
   cycle reprices it when saved. The lifetime cost and earnings totals keep
   what each period cost when it settled.
@@ -214,6 +216,29 @@ the bill's half-hourly pricing.
 - Changing a meter starts it from a new baseline. Changing the cycle day
   moves the kept periods into the new day's cycles; the earliest is marked
   incomplete.
+
+#### Choosing the energy meters
+
+Each half-hour's energy is priced at that half-hour's spot, so billing needs
+meters that say when the energy was used: they must update at least every
+half hour.
+
+- **Good:** a smart meter or CT clamp reading that updates every few
+  minutes, or an [Integral](https://www.home-assistant.io/integrations/integration/)
+  helper on your grid import or export power sensor (W or kW). If the power
+  sensor only reports changes, set the helper's max sub-interval (e.g. 5
+  minutes) so a steady load still updates it.
+- **Not suitable:** daily or cloud statistics that change in coarse steps or
+  only a few times a day. A step reported mid-morning is shared evenly back
+  to the previous one, often overnight, and priced at the wrong spots.
+
+As a check, if a meter goes more than an hour without a reading and then
+reports at least 0.5 kWh, the entry logs a warning and raises a Repairs issue
+naming the meter. It doesn't catch every meter that's too slow, so check
+yours updates often enough. A gap while the meter was unavailable or Home Assistant was down
+doesn't count. The issue is cleared when the entry reloads (as choosing a
+different meter does) or Home Assistant restarts, and comes back if the
+meter still reports too rarely.
 
 ## Not in scope
 

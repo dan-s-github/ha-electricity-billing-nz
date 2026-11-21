@@ -49,6 +49,11 @@ UNKNOWN_BAND = "unknown"
 # A reading this far below the last one is a meter reset; a smaller drop is
 # noise and ignored. Home Assistant's statistics use the same 10% rule.
 RESET_FRACTION = 0.9
+# A meter that reports at least SLOW_METER_KWH after more than
+# SLOW_METER_GAP without a reading can't say which half-hours the energy was
+# used in: it's spread evenly over the gap, and priced at the wrong spots.
+SLOW_METER_GAP = timedelta(hours=1)
+SLOW_METER_KWH = 0.5
 # Energy units the meters accept, as multipliers to kWh.
 ENERGY_UNITS = {"Wh": 0.001, "kWh": 1.0, "MWh": 1000.0}
 
@@ -244,6 +249,14 @@ class Reading:
     at: datetime
 
 
+@dataclass
+class SlowReading:
+    """Energy a meter reported only after a long gap without readings."""
+
+    kwh: float
+    gap: timedelta
+
+
 @dataclass(frozen=True)
 class Bill:
     """A billing cycle's estimate, as invoice lines (ex GST unless noted)."""
@@ -437,6 +450,11 @@ class BillingMeter:
         self.sources: dict[Side, str] = dict(sources or {})
         self.sides: tuple[Side, ...] = tuple(self.sources) or ("import",)
         self.readings: dict[Side, Reading] = {}
+        # Sides whose next increase covers a gap that isn't the meter's
+        # fault: a restart, or the meter being unavailable.
+        self._exempt: set[Side] = set()
+        # Long gaps found by add_reading, for the caller to report.
+        self.slow: dict[Side, SlowReading] = {}
         # When every meter had a first reading (metering began, or restarted):
         # cycles are complete only if it was before their start.
         self.since: datetime | None = None
@@ -457,6 +475,7 @@ class BillingMeter:
             for side, r in data.get("readings", {}).items()
             if stored_sources.get(side) == self.sources.get(side)
         }
+        self._exempt = set(self.readings)
         # A meter without a stored reading (new or changed) moves it on.
         if data.get("since") and all(side in self.readings for side in self.sides):
             self.since = datetime.fromisoformat(data["since"])
@@ -580,6 +599,7 @@ class BillingMeter:
         between. A reading well below the last is a meter reset, so all of it
         is new; a small drop is ignored, keeping the higher baseline.
         """
+        self.slow.pop(side, None)
         last = self.readings.get(side)
         if last is None:
             # The first reading is the baseline; make sure the cycle exists.
@@ -596,19 +616,37 @@ class BillingMeter:
             used = value
         else:
             return False
+        # The exemption lasts until the baseline moves on.
+        exempt = side in self._exempt
+        self._exempt.discard(side)
+        if not exempt and used >= SLOW_METER_KWH and at - last.at > SLOW_METER_GAP:
+            self.slow[side] = SlowReading(used, at - last.at)
         # An unchanged reading moves the baseline on, so the next increase
         # isn't spread back over time when nothing was used.
         self.readings[side] = Reading(value, at)
         if used <= 0:
             return False
         for start, kwh in spread(last.at, at, used):
-            self._cycle_for(start)
+            imp, exp = (kwh, 0.0) if side == "import" else (0.0, kwh)
+            cycle = self._cycle_for(start)
+            if cycle is not None and (final := cycle.periods.get(start)) is not None:
+                # Read late, into a period already made final: it joins that
+                # period at its price, which won't be settled again.
+                self._add_to_final(cycle, start, final, imp, exp)
+                continue
             usage = self.pending.setdefault(start, Pending())
-            if side == "import":
-                usage.import_kwh += kwh
-            else:
-                usage.export_kwh += kwh
+            usage.import_kwh += imp
+            usage.export_kwh += exp
         return True
+
+    def forget_restart(self) -> None:
+        """Drop the restart exemption: loaded on a reload, nothing was down."""
+        self._exempt.clear()
+
+    def mark_unavailable(self, side: Side) -> None:
+        """Note the meter was unavailable: its next gap isn't flagged as slow."""
+        if side in self.readings:
+            self._exempt.add(side)
 
     def set_live_spot(self, start: datetime, spot: float) -> None:
         """Record the live spot for a period, its price until it settles."""
@@ -635,15 +673,41 @@ class BillingMeter:
         key = start.astimezone(UTC)
         period = Period(usage.import_kwh, usage.export_kwh, spot, settled)
         if (cycle := self._cycle_for(key)) is not None:
+            if (final := cycle.periods.get(key)) is not None:
+                # add_reading sends energy for final periods to them, so
+                # this is only a safeguard: add to the period, don't replace it.
+                self._add_to_final(
+                    cycle, key, final, usage.import_kwh, usage.export_kwh
+                )
+                return True
             cycle.periods[key] = period
             priced = self._add_final(cycle.totals, key, period)
         else:
             # Too old for a kept cycle: it still counts in the lifetime totals.
             priced = _tally(self.tariff, Totals(), key, period, spot)
+        self._count_lifetime(priced)
+        return True
+
+    def _count_lifetime(self, priced: tuple[float, float] | None) -> None:
+        """Add a priced period's cost and earnings to the lifetime totals."""
         if priced is not None:
             self.import_cost += priced[0]
             self.export_earnings += priced[1]
-        return True
+
+    def _add_to_final(
+        self,
+        cycle: Cycle,
+        key: datetime,
+        final: Period,
+        import_kwh: float,
+        export_kwh: float,
+    ) -> None:
+        """Add late energy to a final period, at the spot it was priced at."""
+        final.import_kwh += import_kwh
+        final.export_kwh += export_kwh
+        late = Period(import_kwh, export_kwh, final.spot, final.settled)
+        # The period is already counted as unsettled or unpriced if it is.
+        self._count_lifetime(_tally(self.tariff, cycle.totals, key, late, final.spot))
 
     def tick(self, now: datetime) -> bool:
         """

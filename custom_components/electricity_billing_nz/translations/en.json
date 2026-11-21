@@ -313,5 +313,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "slow_meter": {
+      "title": "Energy meter reports too rarely for half-hour pricing",
+      "description": "In {entry}, {entity_id} reported {kwh} kWh after {minutes} minutes without a reading. Billing prices each half-hour at its own spot price, so it can only share that energy evenly over the gap, and the bill estimate is priced at the wrong half-hours.\n\nIn the entry's billing options, choose a meter that updates at least every half hour, such as an Integral helper on your grid power sensor. Daily or cloud statistics usually update too rarely.\n\nThis is flagged when a meter goes more than {limit} minutes without a reading and then reports at least {min_kwh} kWh; a gap while the meter was unavailable or Home Assistant was down doesn't count. It is cleared when the entry reloads (as choosing a different meter does) or Home Assistant restarts, and comes back if the meter still reports too rarely."
+    }
   }
 }
