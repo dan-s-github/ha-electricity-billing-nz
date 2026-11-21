@@ -14,7 +14,8 @@ which provides the wholesale node price. This integration adds your lines
 company's network charges and your retailer's charges to that price.
 
 - Domain: `electricity_billing_nz`
-- IoT class: `calculated` (no network calls; reads other entities and bundled rate data)
+- IoT class: `calculated` (reads other entities and bundled rate data; the
+  only network call is the optional ICP lookup during setup)
 
 ## Why
 
