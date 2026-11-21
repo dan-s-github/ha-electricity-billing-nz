@@ -144,6 +144,82 @@ def test_small_drop_is_ignored() -> None:
     assert bill.import_kwh == pytest.approx(0.5)
 
 
+def test_long_gap_with_energy_is_a_slow_reading() -> None:
+    """Energy reported after over an hour without a reading is flagged."""
+    meter = _meter()
+    meter.add_reading("export", 0.0, nz("2026-11-17 06:00"))
+    meter.add_reading("export", 1.2, nz("2026-11-17 09:00"))
+    assert meter.slow["export"].kwh == pytest.approx(1.2)
+    assert meter.slow["export"].gap == timedelta(hours=3)
+
+
+@pytest.mark.parametrize(
+    ("kwh", "minutes"),
+    [
+        (0.1, 600),  # a fine meter's first step after an idle night
+        (1.2, 60),  # an hourly meter: not over the limit
+    ],
+)
+def test_short_gap_or_little_energy_is_not_slow(kwh: float, minutes: int) -> None:
+    """Only a long gap with real energy in it is flagged."""
+    meter = _meter()
+    meter.add_reading("import", 10.0, nz("2026-11-17 00:00"))
+    meter.add_reading(
+        "import", 10.0 + kwh, nz("2026-11-17 00:00") + timedelta(minutes=minutes)
+    )
+    assert not meter.slow
+
+
+def test_gap_over_a_restart_is_not_slow() -> None:
+    """The first increase after loading covers the downtime: not flagged."""
+    meter = _meter()
+    meter.add_reading("import", 10.0, nz("2026-11-17 00:00"))
+    loaded = BillingMeter(TARIFF, 1, meter.as_dict())
+    loaded.add_reading("import", 12.0, nz("2026-11-17 05:00"))
+    assert not loaded.slow
+    loaded.add_reading("import", 14.0, nz("2026-11-17 08:00"))
+    assert "import" in loaded.slow
+
+
+def test_small_drop_after_a_restart_keeps_the_exemption() -> None:
+    """A noisy first reading doesn't move the baseline, so it isn't used up."""
+    meter = _meter()
+    meter.add_reading("import", 5000.0, nz("2026-11-17 00:00"))
+    loaded = BillingMeter(TARIFF, 1, meter.as_dict())
+    assert not loaded.add_reading("import", 4999.9, nz("2026-11-17 06:00"))
+    loaded.add_reading("import", 5003.0, nz("2026-11-17 06:05"))
+    assert not loaded.slow
+
+
+def test_exemption_ends_when_the_baseline_moves() -> None:
+    """After an outage, the meter's own later gaps are flagged."""
+    meter = _meter()
+    meter.add_reading("import", 10.0, nz("2026-11-17 00:00"))
+    meter.mark_unavailable("import")
+    meter.add_reading("import", 10.0, nz("2026-11-17 00:05"))  # back, unchanged
+    meter.add_reading("import", 13.0, nz("2026-11-17 06:00"))
+    assert "import" in meter.slow
+
+
+def test_reload_has_no_exemption() -> None:
+    """Loaded on a reload, the first slow gap is the meter's own."""
+    meter = _meter()
+    meter.add_reading("import", 10.0, nz("2026-11-17 00:00"))
+    loaded = BillingMeter(TARIFF, 1, meter.as_dict())
+    loaded.forget_restart()
+    loaded.add_reading("import", 13.0, nz("2026-11-17 03:00"))
+    assert "import" in loaded.slow
+
+
+def test_gap_while_unavailable_is_not_slow() -> None:
+    """The increase after the meter was unavailable isn't flagged."""
+    meter = _meter()
+    meter.add_reading("import", 10.0, nz("2026-11-17 00:00"))
+    meter.mark_unavailable("import")
+    meter.add_reading("import", 12.0, nz("2026-11-17 03:00"))
+    assert not meter.slow
+
+
 def test_falling_reading_is_a_reset() -> None:
     """A meter that resets (e.g. a daily total) counts its new value."""
     meter = _meter()

@@ -12,6 +12,7 @@ from homeassistant.const import (
     STATE_UNKNOWN,
 )
 from homeassistant.core import CALLBACK_TYPE, CoreState, Event, HomeAssistant, callback
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
     async_track_entity_registry_updated_event,
@@ -22,7 +23,7 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.start import async_at_started
 from homeassistant.util import dt as dt_util
 
-from .billing import to_kwh
+from .billing import SLOW_METER_GAP, SLOW_METER_KWH, SlowReading, to_kwh
 from .const import (
     CONF_EFFECTIVE_FROM,
     CONF_EXPORT_ENERGY_ENTITY,
@@ -247,6 +248,23 @@ def _has_value(state: State) -> bool:
     return state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
 
 
+def _energy_kwh(state: State) -> float | None:
+    """Return an energy meter's reading in kWh, or None if it has none."""
+    if not _has_value(state):
+        return None
+    try:
+        return to_kwh(
+            float(state.state), state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+        )
+    except ValueError:
+        return None
+
+
+def slow_meter_issue_id(entry_id: str, side: Side) -> str:
+    """Return the Repairs issue id for a meter that reports too rarely."""
+    return f"slow_meter_{entry_id}_{side}"
+
+
 class BillingEngine:
     """Recompute landed prices on source changes and period boundaries."""
 
@@ -276,6 +294,8 @@ class BillingEngine:
         self._save = save
         # Energy meters by side, by current entity id.
         self.energy_entities: dict[Side, str] = {}
+        # Sides already logged as reporting too rarely in this run.
+        self._warned_slow: set[Side] = set()
         if meter is not None:
             for side, key in ENERGY_OPTIONS:
                 if entity_id := _resolve_optional(hass, entry.options.get(key)):
@@ -339,6 +359,9 @@ class BillingEngine:
             self._unsubscribers.append(
                 async_track_state_report_event(self.hass, meters, self._handle_energy)
             )
+            if self.hass.state is CoreState.running:
+                # A reload: the meters kept reporting, so their gaps count.
+                self.meter.forget_restart()
             for side, entity_id in self.energy_entities.items():
                 self._read_energy(side, self.hass.states.get(entity_id))
         if self.hass.state is CoreState.running:
@@ -410,15 +433,53 @@ class BillingEngine:
 
     def _read_energy(self, side: Side, state: State | None) -> bool:
         """Pass a usable reading to the meter; return True if the bill changed."""
-        if self.meter is None or state is None or not _has_value(state):
+        if self.meter is None:
             return False
-        try:
-            kwh = to_kwh(
-                float(state.state), state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
-            )
-        except ValueError:
+        if state is None or (kwh := _energy_kwh(state)) is None:
+            # Removed, unavailable or unreadable: the gap isn't the meter
+            # reporting too rarely.
+            self.meter.mark_unavailable(side)
             return False
-        return self.meter.add_reading(side, kwh, state.last_reported)
+        changed = self.meter.add_reading(side, kwh, state.last_reported)
+        if (slow := self.meter.slow.pop(side, None)) is not None:
+            self._report_slow_meter(side, state.entity_id, slow)
+        return changed
+
+    def _report_slow_meter(self, side: Side, entity_id: str, slow: SlowReading) -> None:
+        """Flag a meter that reports too rarely for half-hour pricing."""
+        # Once a run: the issue is cleared when the entry unloads, and Home
+        # Assistant drops it on restart, so a fixed meter isn't flagged again.
+        if side in self._warned_slow:
+            return
+        self._warned_slow.add(side)
+        minutes = f"{slow.gap.total_seconds() / 60:.0f}"
+        LOGGER.warning(
+            "%s: %s reported %.2f kWh after %s minutes without a reading; "
+            "billing spreads it evenly over that time, so it can't be "
+            "priced at the half-hours it was used in. Use a meter that "
+            "updates more often",
+            self.entry.title,
+            entity_id,
+            slow.kwh,
+            minutes,
+        )
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            slow_meter_issue_id(self.entry.entry_id, side),
+            is_fixable=False,
+            is_persistent=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="slow_meter",
+            translation_placeholders={
+                "entry": self.entry.title,
+                "entity_id": entity_id,
+                "kwh": f"{slow.kwh:.2f}",
+                "minutes": minutes,
+                "limit": f"{SLOW_METER_GAP.total_seconds() / 60:.0f}",
+                "min_kwh": f"{SLOW_METER_KWH:g}",
+            },
+        )
 
     def _update_bill(self) -> None:
         """Recompute the cycle estimates and schedule a save."""
