@@ -602,12 +602,16 @@ class BillingMeter:
         if used <= 0:
             return False
         for start, kwh in spread(last.at, at, used):
-            self._cycle_for(start)
+            imp, exp = (kwh, 0.0) if side == "import" else (0.0, kwh)
+            cycle = self._cycle_for(start)
+            if cycle is not None and (final := cycle.periods.get(start)) is not None:
+                # Read late, into a period already made final: it joins that
+                # period at its price, which won't be settled again.
+                self._add_to_final(cycle, start, final, imp, exp)
+                continue
             usage = self.pending.setdefault(start, Pending())
-            if side == "import":
-                usage.import_kwh += kwh
-            else:
-                usage.export_kwh += kwh
+            usage.import_kwh += imp
+            usage.export_kwh += exp
         return True
 
     def set_live_spot(self, start: datetime, spot: float) -> None:
@@ -635,15 +639,41 @@ class BillingMeter:
         key = start.astimezone(UTC)
         period = Period(usage.import_kwh, usage.export_kwh, spot, settled)
         if (cycle := self._cycle_for(key)) is not None:
+            if (final := cycle.periods.get(key)) is not None:
+                # add_reading sends energy for final periods to them, so
+                # this is only a safeguard: add to the period, don't replace it.
+                self._add_to_final(
+                    cycle, key, final, usage.import_kwh, usage.export_kwh
+                )
+                return True
             cycle.periods[key] = period
             priced = self._add_final(cycle.totals, key, period)
         else:
             # Too old for a kept cycle: it still counts in the lifetime totals.
             priced = _tally(self.tariff, Totals(), key, period, spot)
+        self._count_lifetime(priced)
+        return True
+
+    def _count_lifetime(self, priced: tuple[float, float] | None) -> None:
+        """Add a priced period's cost and earnings to the lifetime totals."""
         if priced is not None:
             self.import_cost += priced[0]
             self.export_earnings += priced[1]
-        return True
+
+    def _add_to_final(
+        self,
+        cycle: Cycle,
+        key: datetime,
+        final: Period,
+        import_kwh: float,
+        export_kwh: float,
+    ) -> None:
+        """Add late energy to a final period, at the spot it was priced at."""
+        final.import_kwh += import_kwh
+        final.export_kwh += export_kwh
+        late = Period(import_kwh, export_kwh, final.spot, final.settled)
+        # The period is already counted as unsettled or unpriced if it is.
+        self._count_lifetime(_tally(self.tariff, cycle.totals, key, late, final.spot))
 
     def tick(self, now: datetime) -> bool:
         """

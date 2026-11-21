@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -187,6 +188,67 @@ def test_settling_twice_counts_once() -> None:
     assert meter.settle(nz("2026-11-17 10:00"), 0.05)
     assert not meter.settle(nz("2026-11-17 10:00"), 0.05)
     assert meter.import_cost == pytest.approx(template_import(0.05, peak=False))
+
+
+def _assert_reload_keeps_the_bill(meter: BillingMeter, now: datetime) -> None:
+    """Assert the bill is the same after a save and load."""
+    live = meter.bill(now)
+    loaded = BillingMeter(TARIFF, meter.cycle_day, meter.as_dict()).bill(now)
+    assert live is not None
+    assert loaded is not None
+    assert loaded.kwh == {band: pytest.approx(row) for band, row in live.kwh.items()}
+    assert {b: asdict(c) for b, c in loaded.charges.items()} == {
+        b: pytest.approx(asdict(c)) for b, c in live.charges.items()
+    }
+    assert loaded.provisional_periods == live.provisional_periods
+    assert loaded.unsettled_periods == live.unsettled_periods
+    assert loaded.unpriced_periods == live.unpriced_periods
+
+
+def test_late_energy_joins_a_settled_period() -> None:
+    """Energy spread back into a settled period adds to it at its price."""
+    meter = _meter()
+    meter.add_reading("import", 0.0, nz("2026-11-17 10:00"))
+    meter.add_reading("import", 1.0, nz("2026-11-17 10:15"))
+    meter.settle(nz("2026-11-17 10:00"), 0.10)
+    meter.set_live_spot(nz("2026-11-17 10:30"), 0.12)
+    # Half of this lands in the 10:00 period, which is already final.
+    meter.add_reading("import", 2.0, nz("2026-11-17 10:45"))
+    now = nz("2026-11-17 10:45")
+    bill = meter.bill(now)
+    assert bill is not None
+    assert bill.provisional_periods == 1  # only 10:30
+    # Its settled price is already known; settling it again changes nothing.
+    assert not meter.settle(nz("2026-11-17 10:00"), 0.10)
+    assert meter.settle(nz("2026-11-17 10:30"), 0.10)
+
+    bill = meter.bill(now)
+    assert bill is not None
+    assert bill.import_kwh == pytest.approx(2.0)
+    assert bill.provisional_periods == 0
+    assert meter.import_cost == pytest.approx(2 * template_import(0.10, peak=False))
+    _assert_reload_keeps_the_bill(meter, now)
+
+
+def test_late_energy_joins_an_unsettled_period_at_its_price() -> None:
+    """A period made final unsettled keeps its provisional price for late energy."""
+    meter = _meter()
+    meter.add_reading("import", 0.0, nz("2026-11-17 10:00"))
+    meter.set_live_spot(nz("2026-11-17 10:00"), 0.20)
+    meter.add_reading("import", 1.0, nz("2026-11-17 10:15"))
+    meter.tick(nz("2026-11-19 10:30"))  # final, unsettled, at the live spot
+    # A reading after a long gap spreads energy back into it: 15 of the
+    # 2,900 minutes the second kWh was spread over fall in it.
+    meter.add_reading("import", 2.0, nz("2026-11-19 10:35"))
+    assert not meter.settle(nz("2026-11-17 10:00"), 0.05)
+
+    now = nz("2026-11-19 11:00")
+    bill = meter.bill(now)
+    assert bill is not None
+    assert bill.unsettled_periods == 1
+    kwh = 1.0 + 15 / 2900
+    assert meter.import_cost == pytest.approx(kwh * template_import(0.20, peak=False))
+    _assert_reload_keeps_the_bill(meter, now)
 
 
 def test_unsettled_period_counts_at_the_live_spot() -> None:
