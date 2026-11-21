@@ -209,11 +209,24 @@ def test_bad_file_is_skipped(tmp_path: Path, caplog: pytest.LogCaptureFixture) -
     """One malformed file doesn't stop the other networks loading."""
     (tmp_path / "bad.yaml").write_text("distributor: bad\ncategories: {}\n")
     (tmp_path / "broken.yaml").write_text("distributor: [unclosed\n")
+    (tmp_path / "binary.yaml").write_bytes(b"\x00\x05\x16\x07\xa3\xff")
     (tmp_path / "vector.yaml").write_text((NETWORKS_DIR / "vector.yaml").read_text())
 
     assert list(load_networks(tmp_path)) == ["vector"]
     assert "bad.yaml" in caplog.text
     assert "broken.yaml" in caplog.text
+    assert "binary.yaml" in caplog.text
+
+
+def test_hidden_files_are_ignored(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Hidden files, such as macOS's ._vector.yaml, aren't network files."""
+    (tmp_path / "._vector.yaml").write_bytes(b"\x00\x05\x16\x07\xa3\xff")
+    (tmp_path / "vector.yaml").write_text((NETWORKS_DIR / "vector.yaml").read_text())
+
+    assert list(load_networks(tmp_path)) == ["vector"]
+    assert "._vector.yaml" not in caplog.text
 
 
 def test_peak_bands() -> None:

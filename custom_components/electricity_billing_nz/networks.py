@@ -187,10 +187,14 @@ def load_networks(directory: Path | None = None) -> dict[str, Network]:
     directory = directory or NETWORKS_DIR
     networks = {}
     for path in sorted(directory.glob("*.yaml")):
+        # Skip hidden files, such as the ._*.yaml metadata macOS leaves when
+        # copying to a network share.
+        if path.name.startswith("."):
+            continue
         try:
             with path.open(encoding="utf-8") as handle:
                 network = parse_network(yaml.safe_load(handle))
-        except (OSError, yaml.YAMLError, NetworkDataError) as err:
+        except (OSError, UnicodeDecodeError, yaml.YAMLError, NetworkDataError) as err:
             _LOGGER.error("Skipping network file %s: %s", path.name, err)  # noqa: TRY400
             continue
         networks[network.key] = network
