@@ -67,6 +67,9 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 warn_unused_configs = true
 ignore_missing_imports = true
+# tools/ imports the integration as custom_components.electricity_billing_nz;
+# without this, mypy also finds it as electricity_billing_nz and stops.
+explicit_package_bases = true
 
 # The contents of this section is based on
 # https://github.com/home-assistant/core/blob/dev/pyproject.toml

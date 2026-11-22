@@ -669,7 +669,7 @@ class BillingMeter:
         self.readings[side] = Reading(value, at)
         if used <= 0:
             return False
-        self._add_energy(side, last.at, at, used)
+        self.add_energy(side, last.at, at, used)
         return True
 
     def add_power(self, side: Side, kw: float, at: datetime) -> bool:
@@ -715,7 +715,7 @@ class BillingMeter:
         kwh = last.value * (until - last.at).total_seconds() / 3600
         if kwh <= 0:
             return False
-        self._add_energy(side, last.at, until, kwh)
+        self.add_energy(side, last.at, until, kwh)
         return True
 
     def _has_baseline(self, side: Side) -> bool:
@@ -730,7 +730,7 @@ class BillingMeter:
                 cycle.since = max(cycle.since, at)
         return True
 
-    def _add_energy(
+    def add_energy(
         self, side: Side, since: datetime, until: datetime, used: float
     ) -> None:
         """Share energy used from ``since`` to ``until`` over its periods."""
