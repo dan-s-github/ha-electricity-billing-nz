@@ -7,8 +7,13 @@ from datetime import UTC, datetime
 
 import pytest
 from freezegun.api import FrozenDateTimeFactory
-from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, STATE_UNAVAILABLE
+from homeassistant.const import (
+    EVENT_HOMEASSISTANT_STARTED,
+    STATE_UNAVAILABLE,
+    EntityCategory,
+)
 from homeassistant.core import CoreState, HomeAssistant, State
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant.common import (
     MockConfigEntry,
     async_fire_time_changed,
@@ -693,3 +698,81 @@ async def test_forecast_drops_first_pass_of_repeated_hour(
         "2027-04-04T02:00:00+12:00",
         "2027-04-04T02:30:00+12:00",
     ]
+
+
+async def test_diagnostic_sensors_show_the_rates_in_force(
+    hass: HomeAssistant, config_entry: MockConfigEntry, freezer: FrozenDateTimeFactory
+) -> None:
+    """The configured rates prices are built from, ex GST, as diagnostics."""
+    freezer.move_to(nz("2026-07-15 17:10"))
+    await _setup(hass, config_entry)
+
+    expected = {
+        "retailer_import_margin": ECOTRICITY["import_margin"],
+        "retailer_export_margin": ECOTRICITY["export_margin"],
+        "transmission_rate": ECOTRICITY["transmission"],
+        "levy_rate": ECOTRICITY["levy"],
+        "metering_daily_charge": ECOTRICITY["metering_daily"],
+        "retailer_daily_charge": ECOTRICITY["retailer_daily"],
+        "network_import_rate": 0.1504,  # winter peak
+        "network_export_credit": 0.0524,
+        "network_daily_charge": 0.9,
+        "loss_factor": 1.0476,
+    }
+    registry = er.async_get(hass)
+    ids = {}
+    for key, value in expected.items():
+        entity_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{config_entry.entry_id}_{key}"
+        )
+        assert entity_id is not None, key
+        ids[key] = entity_id
+        assert _price(hass, entity_id) == pytest.approx(value), key
+        entry = registry.async_get(entity_id)
+        assert entry is not None
+        assert entry.entity_category is EntityCategory.DIAGNOSTIC
+    assert ids["retailer_import_margin"] == "sensor.home_import_margin"
+    margin = hass.states.get(ids["retailer_import_margin"])
+    assert margin.attributes["effective_from"] == "2000-01-01"
+    assert margin.attributes["unit_of_measurement"] == "NZD/kWh"
+    network = hass.states.get(ids["network_import_rate"]).attributes
+    assert network["band"] == "peak"
+    assert network["rates"]["offpeak"] == pytest.approx(0.0457)
+    assert network["source"]
+    assert "unit_of_measurement" not in hass.states.get(ids["loss_factor"]).attributes
+    # The plan has no export floor, so there's no sensor for one.
+    assert hass.states.get("sensor.home_export_floor") is None
+    credit = hass.states.get(ids["network_export_credit"]).attributes
+    assert set(credit["rates"]) == set(network["rates"])
+
+
+async def test_export_floor_diagnostic(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A plan's export floor shows as a diagnostic."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Home",
+        data=entry_data(),
+        options={
+            "retailer_versions": [{**ECOTRICITY, "export_floor": 0.01}],
+            "network_overrides": [],
+        },
+    )
+    entry.add_to_hass(hass)
+    freezer.move_to(nz("2026-07-15 17:10"))
+    await _setup(hass, entry)
+    assert _price(hass, "sensor.home_export_floor") == pytest.approx(0.01)
+
+
+async def test_rate_diagnostics_only_write_changes(
+    hass: HomeAssistant, config_entry: MockConfigEntry, freezer: FrozenDateTimeFactory
+) -> None:
+    """Source updates that don't change a rate don't rewrite its state."""
+    freezer.move_to(nz("2026-07-15 17:10"))
+    await _setup(hass, config_entry)
+    before = hass.states.get("sensor.home_import_margin").last_reported
+    freezer.tick(5)
+    set_live(hass, 12.0, nz("2026-07-15 17:00"))
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.home_import_margin").last_reported == before

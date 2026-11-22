@@ -75,6 +75,11 @@ off-peak) that period *t* falls in, using the lines company's peak windows.
     for EMHASS and similar optimisers (needs the forecast sensor)
   - daily charge (NZD/day)
   - current time-of-use band and when it next changes
+  - diagnostics: each rate in force now, ex GST, to check against your bill
+    or plan: import and export margins, transmission, levy, metering and
+    retailer daily charges, the network rate and export credit for the
+    current band (every band's as attributes), the network daily charge and
+    the loss factor. Each shows the date its rate version took effect.
 - **Billing cycle** (optional, needs grid import and export power or energy
   sensors):
   - import and export kWh this cycle, per time-of-use band
@@ -84,6 +89,8 @@ off-peak) that period *t* falls in, using the lines company's peak windows.
     charges, network per band, energy, transmission, levy, export and GST,
     and the previous cycle's
   - import cost and export earnings totals since billing was set up
+  - diagnostic: when metering of the current cycle began, whether the cycle
+    is complete, and the meters read
 - **Binary sensor**: on during peak.
 - **Services**: `price_at` (the price for a given time and spot price, for
   backtests) and `export_versions` (the rate versions in force, as YAML).
@@ -199,7 +206,7 @@ the bill's half-hourly pricing.
   counted in `unsettled_periods`.
 - The cycle that was running when you set billing up is partial: the total's
   `complete` attribute is false until the first full cycle. The same goes
-  for a meter added during a cycle.
+  for a meter added during a cycle (an export meter where there was none).
 - Bills use the final wholesale prices, published days later; the settled
   prices are interim, so expect small differences.
 - The estimate includes GST unless the entry's GST option is off.
@@ -216,7 +223,10 @@ the bill's half-hourly pricing.
   what each period cost when it settled.
 - A reading more than 10% below the last one is a meter reset (e.g. a daily
   total); a smaller drop is ignored.
-- Changing a meter starts it from a new baseline. Changing the cycle day
+- Replacing a meter (say, an energy meter with a power sensor) starts it
+  from a new baseline, and the cycle stays as complete as it was: the energy
+  and daily charges already counted are kept. Energy between the old
+  meter's last reading and the new one's first isn't counted. Changing the cycle day
   moves the kept periods into the new day's cycles; the earliest is marked
   incomplete.
 

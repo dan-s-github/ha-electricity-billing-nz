@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from homeassistant.components.sensor import (
     RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
+    SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfEnergy
+from homeassistant.const import EntityCategory, UnitOfEnergy
+from homeassistant.core import callback
 from homeassistant.helpers import entity_registry as er
 
 from .const import CURRENCY, DAILY_UNIT, DOMAIN, PRICE_PRECISION, PRICE_UNIT
@@ -18,6 +21,7 @@ from .entity import BillingEntity, TariffEntity
 from .tariff import PriceBreakdown, all_bands, nz_midnight
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
     from datetime import datetime
 
     from homeassistant.core import HomeAssistant
@@ -26,6 +30,7 @@ if TYPE_CHECKING:
     from . import ElectricityBillingNzConfigEntry
     from .billing import Bill
     from .engine import PricePair
+    from .tariff import LossVersion, NetworkVersion, Rates, RetailerVersion
 
 type Source = Literal["settled", "live"]
 type Side = Literal["import", "export"]
@@ -43,6 +48,101 @@ BILLING_KEYS = (
     "billing_cycle_estimated_total",
     "import_cost_total",
     "export_earnings_total",
+    "metering_since",
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class RateDescription(SensorEntityDescription):
+    """A configured rate in force now, shown as a diagnostic sensor (ex GST)."""
+
+    # None while the rate doesn't apply (e.g. no export floor, or no rate
+    # for the band now).
+    value: Callable[[Rates], float | None]
+    # The version the rate comes from, for its effective date and source.
+    version: Callable[[Rates], NetworkVersion | LossVersion | RetailerVersion]
+    # Every band's rate, for a rate that depends on the band.
+    per_band: Callable[[Rates], Mapping[str, float]] | None = None
+    entity_category: EntityCategory | None = EntityCategory.DIAGNOSTIC
+    native_unit_of_measurement: str | None = PRICE_UNIT
+    suggested_display_precision: int | None = PRICE_PRECISION
+
+
+def _retailer(rates: Rates) -> RetailerVersion:
+    return rates.retailer
+
+
+def _network(rates: Rates) -> NetworkVersion:
+    return rates.network
+
+
+RATE_SENSORS = (
+    RateDescription(
+        key="retailer_import_margin",
+        value=lambda r: r.retailer.import_margin,
+        version=_retailer,
+    ),
+    RateDescription(
+        key="retailer_export_margin",
+        value=lambda r: r.retailer.export_margin,
+        version=_retailer,
+    ),
+    RateDescription(
+        key="retailer_export_floor",
+        value=lambda r: r.retailer.export_floor,
+        version=_retailer,
+    ),
+    RateDescription(
+        key="transmission_rate",
+        value=lambda r: r.retailer.transmission,
+        version=_retailer,
+    ),
+    RateDescription(
+        key="levy_rate", value=lambda r: r.retailer.levy, version=_retailer
+    ),
+    RateDescription(
+        key="metering_daily_charge",
+        value=lambda r: r.retailer.metering_daily,
+        version=_retailer,
+        native_unit_of_measurement=DAILY_UNIT,
+        suggested_display_precision=4,
+    ),
+    RateDescription(
+        key="retailer_daily_charge",
+        value=lambda r: r.retailer.retailer_daily,
+        version=_retailer,
+        native_unit_of_measurement=DAILY_UNIT,
+        suggested_display_precision=4,
+    ),
+    RateDescription(
+        key="network_import_rate",
+        value=lambda r: r.network.import_rates.get(r.band),
+        version=_network,
+        per_band=lambda r: r.network.import_rates,
+    ),
+    RateDescription(
+        key="network_export_credit",
+        value=lambda r: r.network.export_credit.get(r.band, 0.0),
+        version=_network,
+        per_band=lambda r: {
+            band: r.network.export_credit.get(band, 0.0)
+            for band in r.network.import_rates
+        },
+    ),
+    RateDescription(
+        key="network_daily_charge",
+        value=lambda r: r.network.daily,
+        version=_network,
+        native_unit_of_measurement=DAILY_UNIT,
+        suggested_display_precision=4,
+    ),
+    RateDescription(
+        key="loss_factor",
+        value=lambda r: r.loss.factor,
+        version=lambda r: r.loss,
+        native_unit_of_measurement=None,
+        suggested_display_precision=4,
+    ),
 )
 OPTIONAL_KEYS = (
     "import_price_live",
@@ -66,6 +166,13 @@ async def async_setup_entry(
         DailyChargeSensor(entry, "daily_charge"),
         TouBandSensor(entry, "tou_band"),
         NextBandChangeSensor(entry, "next_band_change"),
+        *(
+            RateSensor(entry, description)
+            for description in RATE_SENSORS
+            # The export floor only for a plan that has one.
+            if description.key != "retailer_export_floor"
+            or any(v.export_floor is not None for v in engine.tariff.retailer)
+        ),
     ]
     if engine.live_entity:
         entities += [
@@ -83,6 +190,7 @@ async def async_setup_entry(
             CycleRateSensor(entry, "billing_cycle_import_energy_rate", "import"),
             CycleTotalSensor(entry, "billing_cycle_estimated_total"),
             LifetimeTotalSensor(entry, "import_cost_total", "import"),
+            MeteringSinceSensor(entry, "metering_since"),
         ]
         if "export" in engine.meter.sides:
             entities += [
@@ -253,6 +361,63 @@ class DailyChargeSensor(TariffEntity, SensorEntity):
         return round(value, PRICE_PRECISION) if value is not None else None
 
 
+class WriteOnChange(BillingEntity):
+    """
+    Write state only when it changes.
+
+    The engine updates on every source and meter reading; diagnostics change
+    at band boundaries, new versions or new cycles.
+    """
+
+    _written: tuple[Any, ...] | None = None
+
+    @callback
+    def _handle_engine_update(self) -> None:
+        written = (self.available, self.state, self.extra_state_attributes)
+        if written != self._written:
+            self._written = written
+            self.async_write_ha_state()
+
+
+class RateSensor(WriteOnChange, TariffEntity, SensorEntity):
+    """A configured rate in force now, ex GST: shows what prices are built from."""
+
+    entity_description: RateDescription
+
+    def __init__(
+        self, entry: ElectricityBillingNzConfigEntry, description: RateDescription
+    ) -> None:
+        """Initialise for one rate."""
+        super().__init__(entry, description.key)
+        self.entity_description = description
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the rate in force now."""
+        rates = self.engine.rates
+        if rates is None or (value := self.entity_description.value(rates)) is None:
+            return None
+        return round(value, PRICE_PRECISION)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return the version the rate comes from, and any per-band rates."""
+        rates = self.engine.rates
+        if rates is None:
+            return None
+        description = self.entity_description
+        version = description.version(rates)
+        attributes: dict[str, Any] = {
+            "effective_from": version.effective_from.isoformat()
+        }
+        if source := getattr(version, "source", None):
+            attributes["source"] = source
+        if description.per_band is not None:
+            attributes["band"] = rates.band
+            attributes["rates"] = dict(description.per_band(rates))
+        return attributes
+
+
 class TouBandSensor(TariffEntity, SensorEntity):
     """Current time-of-use band."""
 
@@ -406,6 +571,41 @@ class CycleTotalSensor(CycleSensor):
         return {
             **_bill_summary(bill),
             "previous_cycle": _bill_summary(previous) if previous else None,
+        }
+
+
+class MeteringSinceSensor(WriteOnChange, CycleSensor):
+    """When metering of the current cycle began: before its start, it's complete."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    @property
+    def last_reset(self) -> datetime | None:
+        """Return None: a timestamp has no reset."""
+        return None
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return when metering of the current cycle began."""
+        bill, meter = self.engine.bill, self.engine.meter
+        if (
+            bill is None
+            or meter is None
+            or (cycle := meter.cycles.get(bill.start)) is None
+        ):
+            return None
+        return cycle.since
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return whether the cycle is complete, and the meters read."""
+        bill = self.engine.bill
+        if bill is None:
+            return None
+        return {
+            "complete": bill.complete,
+            "meters": sorted(self.engine.meter_entities),
         }
 
 

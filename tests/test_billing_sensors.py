@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 from freezegun.api import FrozenDateTimeFactory
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
@@ -367,6 +368,26 @@ async def test_removing_the_entry_clears_the_repair(
     assert await hass.config_entries.async_remove(billing_entry.entry_id)
     await hass.async_block_till_done()
     assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_metering_since_shows_when_the_cycle_was_metered_from(
+    hass: HomeAssistant,
+    billing_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A diagnostic shows when metering began and whether the cycle is complete."""
+    freezer.move_to(nz("2026-11-17 10:05"))
+    _set_meter(hass, IMPORT_METER, 100.0)
+    _set_meter(hass, EXPORT_METER, 5.0)
+    await _setup(hass, billing_entry)
+
+    state = hass.states.get("sensor.home_metering_since")
+    assert state.state == "2026-11-16T21:05:00+00:00"
+    assert state.attributes["complete"] is False
+    assert state.attributes["meters"] == [EXPORT_METER, IMPORT_METER]
+    entry = er.async_get(hass).async_get("sensor.home_metering_since")
+    assert entry is not None
+    assert entry.entity_category is EntityCategory.DIAGNOSTIC
 
 
 async def test_first_reading_after_setup_starts_the_bill(
