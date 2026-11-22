@@ -560,6 +560,59 @@ def test_changed_meter_starts_from_a_baseline() -> None:
     assert bill.import_kwh == 0
 
 
+def test_replaced_meter_keeps_the_cycle_metered_since() -> None:
+    """Swapping one meter for another doesn't make the cycle partial."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "meter_a"})
+    meter.add_reading("import", 1200.0, nz("2026-11-01 00:00"))
+    meter.add_reading("import", 1210.0, nz("2026-11-10 00:00"))
+
+    loaded = BillingMeter(TARIFF, 1, meter.as_dict(), sources={"import": "power"})
+    loaded.add_power("import", 1.0, nz("2026-11-20 10:00"))
+    bill = loaded.bill(nz("2026-11-20 10:30"))
+    assert bill is not None
+    assert bill.complete
+    assert bill.days == 20
+    assert bill.import_kwh == pytest.approx(10.0)
+    assert loaded.cycles[bill.start].since == nz("2026-11-01 00:00")
+
+
+def test_replacing_a_meter_and_the_cycle_day_together() -> None:
+    """Carried totals, a replaced meter and a new cycle day load cleanly."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "meter_a"})
+    meter.add_reading("import", 1.0, nz("2026-11-02 00:00"))
+    data = meter.as_dict()
+    data["cycles"] = [_stored_1_1_cycle("2026-11-01", "2026-11-01T00:00:00+13:00")]
+    loaded = BillingMeter(TARIFF, 15, data, sources={"import": "power"})
+    assert loaded.since is None
+
+
+def test_side_never_read_before_isnt_a_replacement() -> None:
+    """A stored meter with no reading didn't meter: its side starts partial."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "meter_a", "export": "meter_b"})
+    meter.add_reading("import", 1.0, nz("2026-11-01 00:00"))
+    data = meter.as_dict()
+    data["since"] = nz("2026-11-01 00:00").isoformat()  # as if both had read
+    loaded = BillingMeter(
+        TARIFF, 1, data, sources={"import": "meter_a", "export": "meter_c"}
+    )
+    assert loaded.since is None
+
+
+def test_added_meter_makes_the_cycle_partial() -> None:
+    """A side metered for the first time: its earlier energy is unknown."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "meter_a"})
+    meter.add_reading("import", 1200.0, nz("2026-11-01 00:00"))
+
+    loaded = BillingMeter(
+        TARIFF, 1, meter.as_dict(), sources={"import": "meter_a", "export": "new"}
+    )
+    loaded.add_reading("export", 0.0, nz("2026-11-20 10:00"))
+    bill = loaded.bill(nz("2026-11-20 10:30"))
+    assert bill is not None
+    assert not bill.complete
+    assert bill.days == 1
+
+
 def test_no_cycle_before_the_first_reading() -> None:
     """Without a reading there's no cycle, so no bill."""
     meter = _meter()
@@ -728,12 +781,12 @@ def test_cycle_is_complete_only_once_every_meter_was_read() -> None:
     assert meter.since == nz("2026-11-01 12:00")
     assert not bill.complete
 
-    # A meter added later moves the coverage on too.
+    # A replaced meter keeps the coverage: the old one metered until then.
     sources["export"] = "meter_c"
     loaded = BillingMeter(TARIFF, 1, meter.as_dict(), sources=sources)
-    assert loaded.since is None
+    assert loaded.since == nz("2026-11-01 12:00")
     loaded.add_reading("export", 0.0, nz("2026-11-02 08:00"))
-    assert loaded.cycles[date(2026, 11, 1)].since == nz("2026-11-02 08:00")
+    assert loaded.cycles[date(2026, 11, 1)].since == nz("2026-11-01 12:00")
 
 
 def test_cycle_complete_when_metered_from_its_start() -> None:

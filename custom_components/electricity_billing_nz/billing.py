@@ -218,8 +218,9 @@ class Cycle:
     """Energy and charges for one billing cycle."""
 
     start: date
-    # When metering covered this cycle from: its start, or when every meter
-    # had a first reading if billing was set up (or a meter added) during it.
+    # When metering covered this cycle from: its start, or when every side
+    # was first metered if billing was set up (or a side added) during it.
+    # Replacing a side's meter doesn't move it.
     since: datetime
     # Final periods, keyed by period start in UTC.
     periods: dict[datetime, Period] = field(default_factory=dict)
@@ -495,8 +496,10 @@ class BillingMeter:
         self._exempt: set[Side] = set()
         # Long gaps found by add_reading, for the caller to report.
         self.slow: dict[Side, SlowReading] = {}
-        # When every meter had a first reading (metering began, or restarted):
-        # cycles are complete only if it was before their start.
+        # When every side was first metered (billing set up, or a side added):
+        # cycles are complete only if it was before their start. Replacing a
+        # side's meter doesn't move it, so the new meter may not have a
+        # reading yet.
         self.since: datetime | None = None
         # Keyed by cycle start; only the current and previous cycles are kept.
         self.cycles: dict[date, Cycle] = {}
@@ -519,8 +522,17 @@ class BillingMeter:
             for key in ("readings", "power")
         )
         self._exempt = set(self.readings) | set(self.power)
-        # A meter without a stored reading (new or changed) moves it on.
-        if data.get("since") and all(self._has_baseline(s) for s in self.sides):
+        # A side metered for the first time moves it on: its energy before is
+        # unknown. A replaced meter doesn't: the old one metered until then.
+        metered = {
+            side
+            for key in ("readings", "power")
+            for side in data.get(key, {})
+            if side in stored_sources
+        }
+        if data.get("since") and all(
+            self._has_baseline(s) or s in metered for s in self.sides
+        ):
             self.since = datetime.fromisoformat(data["since"])
         self.pending = {
             datetime.fromisoformat(p["start"]): Pending(
@@ -551,9 +563,8 @@ class BillingMeter:
         elif self.since is not None:
             # Totals can't be split into other cycles: meter the new ones
             # from the last reading on.
-            self.since = max(
-                r.at for r in (*self.readings.values(), *self.power.values())
-            )
+            stamps = [r.at for r in (*self.readings.values(), *self.power.values())]
+            self.since = max(stamps) if stamps else None
         for cycle in self.cycles.values():
             self._retally(cycle)
 
