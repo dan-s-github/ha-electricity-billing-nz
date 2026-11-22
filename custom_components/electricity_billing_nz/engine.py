@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
+    EVENT_HOMEASSISTANT_STOP,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
 )
 from homeassistant.core import CALLBACK_TYPE, CoreState, Event, HomeAssistant, callback
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
     async_track_entity_registry_updated_event,
@@ -23,12 +25,18 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.start import async_at_started
 from homeassistant.util import dt as dt_util
 
-from .billing import SLOW_METER_GAP, SLOW_METER_KWH, SlowReading, to_kwh
+from .billing import (
+    SLOW_METER_GAP,
+    SLOW_METER_KWH,
+    SlowReading,
+    read_meter,
+)
 from .const import (
     CONF_EFFECTIVE_FROM,
     CONF_EXPORT_ENERGY_ENTITY,
     CONF_EXPORT_FLOOR,
     CONF_FORECAST_ENTITY,
+    CONF_GRID_POWER_ENTITY,
     CONF_GST_INCLUSIVE,
     CONF_IMPORT_ENERGY_ENTITY,
     CONF_LIVE_ENTITY,
@@ -82,6 +90,23 @@ ENERGY_OPTIONS: tuple[tuple[Side, str], ...] = (
     ("import", CONF_IMPORT_ENERGY_ENTITY),
     ("export", CONF_EXPORT_ENERGY_ENTITY),
 )
+# What a billing meter measures: one side, or both from a signed grid sensor.
+type MeterRole = Literal["import", "export", "grid"]
+METER_OPTIONS: tuple[tuple[MeterRole, str], ...] = (
+    *ENERGY_OPTIONS,
+    ("grid", CONF_GRID_POWER_ENTITY),
+)
+
+
+# Seconds between bill refreshes driven by power readings.
+BILL_REFRESH = 30
+
+
+def meter_sources(options: Mapping[str, Any]) -> dict[Side, str]:
+    """Return the stored source of each metered side, from the entry options."""
+    if grid := options.get(CONF_GRID_POWER_ENTITY):
+        return {"import": grid, "export": grid}
+    return {side: options[key] for side, key in ENERGY_OPTIONS if options.get(key)}
 
 
 def signal_updated(entry_id: str) -> str:
@@ -248,16 +273,11 @@ def _has_value(state: State) -> bool:
     return state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
 
 
-def _energy_kwh(state: State) -> float | None:
-    """Return an energy meter's reading in kWh, or None if it has none."""
+def _meter_reading(state: State) -> tuple[Literal["energy", "power"], float] | None:
+    """Return a meter's reading as energy in kWh or power in kW, or None."""
     if not _has_value(state):
         return None
-    try:
-        return to_kwh(
-            float(state.state), state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
-        )
-    except ValueError:
-        return None
+    return read_meter(state.state, state.attributes.get(ATTR_UNIT_OF_MEASUREMENT))
 
 
 def slow_meter_issue_id(entry_id: str, side: Side) -> str:
@@ -292,14 +312,25 @@ class BillingEngine:
         )
         self.meter = meter
         self._save = save
-        # Energy meters by side, by current entity id.
-        self.energy_entities: dict[Side, str] = {}
+        # Billing meters' roles, by current entity id.
+        self.meter_entities: dict[str, MeterRole] = {}
         # Sides already logged as reporting too rarely in this run.
         self._warned_slow: set[Side] = set()
+        # Meter readings can come every second: the bill refreshes at most
+        # every BILL_REFRESH seconds.
+        self._bill_refresh: Debouncer[None] | None = None
+        self._warned_grid_unit = False
         if meter is not None:
-            for side, key in ENERGY_OPTIONS:
+            self._bill_refresh = Debouncer(
+                hass,
+                LOGGER,
+                cooldown=BILL_REFRESH,
+                immediate=True,
+                function=self._refresh_bill,
+            )
+            for role, key in METER_OPTIONS:
                 if entity_id := _resolve_optional(hass, entry.options.get(key)):
-                    self.energy_entities[side] = entity_id
+                    self.meter_entities[entity_id] = role
         self.bill: Bill | None = None
         self.previous_bill: Bill | None = None
         self.settled: PricePair | None = None
@@ -345,12 +376,19 @@ class BillingEngine:
         self._unsubscribers.append(
             async_track_entity_registry_updated_event(
                 self.hass,
-                [*self.sources, *self.energy_entities.values()],
+                [*self.sources, *self.meter_entities],
                 self._handle_registry_update,
             )
         )
         if self.meter is not None:
-            meters = list(self.energy_entities.values())
+            # Entries aren't unloaded when Home Assistant stops: count the
+            # held power up to then, so the final save keeps it.
+            self._unsubscribers.append(
+                self.hass.bus.async_listen_once(
+                    EVENT_HOMEASSISTANT_STOP, self._handle_hass_stop
+                )
+            )
+            meters = list(self.meter_entities)
             self._unsubscribers.append(
                 async_track_state_change_event(self.hass, meters, self._handle_energy)
             )
@@ -362,8 +400,8 @@ class BillingEngine:
             if self.hass.state is CoreState.running:
                 # A reload: the meters kept reporting, so their gaps count.
                 self.meter.forget_restart()
-            for side, entity_id in self.energy_entities.items():
-                self._read_energy(side, self.hass.states.get(entity_id))
+            for entity_id, role in self.meter_entities.items():
+                self._read_meter(role, self.hass.states.get(entity_id))
         if self.hass.state is CoreState.running:
             # A reload, not a restart: there's no startup to wait for.
             self.source_reported.update(self.sources)
@@ -376,13 +414,22 @@ class BillingEngine:
 
     @callback
     def async_stop(self) -> None:
-        """Remove listeners and the boundary timer."""
+        """Remove listeners and the boundary timer, counting held power first."""
+        if self.meter is not None:
+            self.meter.advance(dt_util.now())
+        if self._bill_refresh is not None:
+            self._bill_refresh.async_shutdown()
         for unsub in self._unsubscribers:
             unsub()
         self._unsubscribers.clear()
         if self._unsub_timer:
             self._unsub_timer()
             self._unsub_timer = None
+
+    @callback
+    def _handle_hass_stop(self, _event: Event) -> None:
+        if self.meter is not None and self.meter.advance(dt_util.now()):
+            self._update_bill()
 
     @callback
     def _handle_started(self, _hass: HomeAssistant) -> None:
@@ -419,30 +466,57 @@ class BillingEngine:
     def _handle_energy(
         self, event: Event[EventStateChangedData] | Event[EventStateReportedData]
     ) -> None:
-        """Count a new or re-reported energy meter reading."""
-        side = next(
-            s for s, e in self.energy_entities.items() if e == event.data["entity_id"]
-        )
-        if self._read_energy(side, event.data["new_state"]):
-            self._update_bill()
-            async_dispatcher_send(self.hass, signal_updated(self.entry.entry_id))
+        """Count a new or re-reported billing meter reading."""
+        role = self.meter_entities[event.data["entity_id"]]
+        if self._read_meter(role, event.data["new_state"]):
+            if self._bill_refresh is not None:
+                self._bill_refresh.async_schedule_call()
         elif self._save is not None:
             # The reading may still have moved the baseline on; keep that
             # over a restart. Pending saves are coalesced.
             self._save()
 
-    def _read_energy(self, side: Side, state: State | None) -> bool:
+    def _read_meter(self, role: MeterRole, state: State | None) -> bool:
         """Pass a usable reading to the meter; return True if the bill changed."""
         if self.meter is None:
             return False
-        if state is None or (kwh := _energy_kwh(state)) is None:
-            # Removed, unavailable or unreadable: the gap isn't the meter
-            # reporting too rarely.
-            self.meter.mark_unavailable(side)
+        reading = _meter_reading(state) if state is not None else None
+        if reading is not None and role == "grid" and reading[0] != "power":
+            if not self._warned_grid_unit:
+                self._warned_grid_unit = True
+                LOGGER.warning(
+                    "%s: the grid power sensor %s doesn't read power (W, kW "
+                    "or MW); billing ignores it until it does",
+                    self.entry.title,
+                    state.entity_id if state is not None else None,
+                )
+            reading = None
+        if state is None or reading is None:
+            # Removed, unavailable or unreadable: a power sensor's held power
+            # counts until now, and the gap isn't the meter's fault.
+            now = dt_util.now()
+            sides: tuple[Side, ...] = (
+                ("import", "export") if role == "grid" else (role,)
+            )
+            changed = False
+            for side in sides:  # both sides, so no any()
+                changed |= self.meter.mark_unavailable(side, now)
+            return changed
+        kind, value = reading
+        at = state.last_reported
+        if kind == "power":
+            if role == "grid":
+                imported = self.meter.add_power("import", value, at)
+                exported = self.meter.add_power("export", -value, at)
+                changed = imported or exported
+            else:
+                changed = self.meter.add_power(role, value, at)
+            return changed
+        if role == "grid":  # an energy reading was turned away above
             return False
-        changed = self.meter.add_reading(side, kwh, state.last_reported)
-        if (slow := self.meter.slow.pop(side, None)) is not None:
-            self._report_slow_meter(side, state.entity_id, slow)
+        changed = self.meter.add_reading(role, value, at)
+        if (slow := self.meter.slow.pop(role, None)) is not None:
+            self._report_slow_meter(role, state.entity_id, slow)
         return changed
 
     def _report_slow_meter(self, side: Side, entity_id: str, slow: SlowReading) -> None:
@@ -481,11 +555,17 @@ class BillingEngine:
             },
         )
 
+    @callback
+    def _refresh_bill(self) -> None:
+        self._update_bill()
+        async_dispatcher_send(self.hass, signal_updated(self.entry.entry_id))
+
     def _update_bill(self) -> None:
         """Recompute the cycle estimates and schedule a save."""
         if self.meter is None:
             return
         now = dt_util.now()
+        self.meter.advance(now)
         # Start a new cycle when it's due, and make overdue periods final.
         self.meter.tick(now)
         self.bill = self.meter.bill(now)
@@ -608,6 +688,9 @@ class BillingEngine:
         """
         if self.meter is None:
             return
+        # Steady power has been held since its last reading: count it into
+        # the periods before they settle.
+        self.meter.advance(dt_util.now())
         state = self.hass.states.get(self.settled_entity)
         if state is None or not _has_value(state):
             return

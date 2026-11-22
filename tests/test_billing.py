@@ -195,7 +195,7 @@ def test_exemption_ends_when_the_baseline_moves() -> None:
     """After an outage, the meter's own later gaps are flagged."""
     meter = _meter()
     meter.add_reading("import", 10.0, nz("2026-11-17 00:00"))
-    meter.mark_unavailable("import")
+    meter.mark_unavailable("import", nz("2026-11-17 00:01"))
     meter.add_reading("import", 10.0, nz("2026-11-17 00:05"))  # back, unchanged
     meter.add_reading("import", 13.0, nz("2026-11-17 06:00"))
     assert "import" in meter.slow
@@ -215,9 +215,110 @@ def test_gap_while_unavailable_is_not_slow() -> None:
     """The increase after the meter was unavailable isn't flagged."""
     meter = _meter()
     meter.add_reading("import", 10.0, nz("2026-11-17 00:00"))
-    meter.mark_unavailable("import")
+    meter.mark_unavailable("import", nz("2026-11-17 00:01"))
     meter.add_reading("import", 12.0, nz("2026-11-17 03:00"))
     assert not meter.slow
+
+
+def _pending_kwh(meter: BillingMeter, side: int = 0) -> dict[str, float]:
+    """Return pending energy by local period start, for one side."""
+    return {
+        key.astimezone(NZ_TZ).strftime("%H:%M"): round(
+            (usage.import_kwh, usage.export_kwh)[side], 6
+        )
+        for key, usage in sorted(meter.pending.items())
+        if (usage.import_kwh, usage.export_kwh)[side]
+    }
+
+
+def test_steady_power_is_counted_into_its_periods() -> None:
+    """Held power reaches each period when the meter advances, not later."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", 2.0, nz("2026-11-17 10:00"))
+    meter.advance(nz("2026-11-17 10:30"))
+    assert _pending_kwh(meter) == {"10:00": 1.0}
+    meter.advance(nz("2026-11-17 11:00"))
+    assert _pending_kwh(meter) == {"10:00": 1.0, "10:30": 1.0}
+
+
+def test_power_idle_for_hours_puts_nothing_in_them() -> None:
+    """A sensor that only reports changes places energy exactly."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", 0.0, nz("2026-11-17 00:00"))
+    meter.add_power("import", 3.0, nz("2026-11-17 06:00"))
+    meter.add_power("import", 0.0, nz("2026-11-17 06:20"))
+    assert _pending_kwh(meter) == {"06:00": 1.0}
+
+
+def test_negative_power_counts_as_none() -> None:
+    """A side's power below zero is no energy on that side."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", -2.0, nz("2026-11-17 10:00"))
+    meter.advance(nz("2026-11-17 11:00"))
+    assert _pending_kwh(meter) == {}
+
+
+def test_power_gap_over_a_restart_is_not_counted() -> None:
+    """The power while Home Assistant was down is unknown, so not counted."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", 2.0, nz("2026-11-17 10:00"))
+    meter.advance(nz("2026-11-17 10:15"))
+    loaded = BillingMeter(TARIFF, 1, meter.as_dict(), {"import": "power"})
+    assert loaded.since == meter.since  # the cycle stays complete as it was
+    loaded.advance(nz("2026-11-17 12:00"))
+    loaded.add_power("import", 2.0, nz("2026-11-17 12:00"))
+    loaded.add_power("import", 0.0, nz("2026-11-17 12:30"))
+    assert _pending_kwh(loaded) == {"10:00": 0.5, "12:00": 1.0}
+
+
+def test_power_gap_while_unavailable_is_not_counted() -> None:
+    """Power counts up to when the sensor went unavailable, then afresh."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", 2.0, nz("2026-11-17 10:00"))
+    meter.advance(nz("2026-11-17 10:10"))
+    assert meter.mark_unavailable("import", nz("2026-11-17 10:15"))
+    meter.advance(nz("2026-11-17 11:00"))
+    meter.add_power("import", 2.0, nz("2026-11-17 11:00"))
+    meter.advance(nz("2026-11-17 11:30"))
+    assert _pending_kwh(meter) == {"10:00": 0.5, "11:00": 1.0}
+
+
+def test_reload_counts_the_power_gap() -> None:
+    """On a reload nothing was down: the held power counts across it."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", 2.0, nz("2026-11-17 10:00"))
+    loaded = BillingMeter(TARIFF, 1, meter.as_dict(), {"import": "power"})
+    loaded.forget_restart()
+    loaded.advance(nz("2026-11-17 10:30"))
+    assert _pending_kwh(loaded) == {"10:00": 1.0}
+
+
+def test_power_stamped_before_the_last_advance_holds_from_it() -> None:
+    """A reading older than the baseline isn't lost: it holds from there on."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", 2.0, nz("2026-11-17 10:00"))
+    meter.advance(nz("2026-11-17 10:15"))
+    assert not meter.add_power("import", 0.0, nz("2026-11-17 10:14"))
+    meter.advance(nz("2026-11-17 11:00"))
+    assert _pending_kwh(meter) == {"10:00": 0.5}
+
+
+def test_power_only_meter_starts_the_new_cycle() -> None:
+    """With only power sensors, the new cycle still starts on its day."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", 0.0, nz("2026-11-30 23:50"))
+    assert meter.tick(nz("2026-12-01 00:05"))
+    assert meter.bill(nz("2026-12-01 00:05")) is not None
+
+
+def test_power_only_meter_survives_a_cycle_day_change() -> None:
+    """Carried totals and a new cycle day restart metering from the baseline."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", 1.0, nz("2026-11-17 10:00"))
+    data = meter.as_dict()
+    data["cycles"] = [_stored_1_1_cycle("2026-11-01", "2026-11-01T00:00:00+13:00")]
+    loaded = BillingMeter(TARIFF, 15, data, {"import": "power"})
+    assert loaded.since == nz("2026-11-17 10:00")
 
 
 def test_falling_reading_is_a_reset() -> None:

@@ -16,11 +16,16 @@ from homeassistant.helpers.storage import Store
 from .billing import STORAGE_VERSION, BillingMeter
 from .const import (
     CONF_BILLING_CYCLE_DAY,
-    CONF_IMPORT_ENERGY_ENTITY,
     DEFAULT_BILLING_CYCLE_DAY,
     DOMAIN,
 )
-from .engine import ENERGY_OPTIONS, BillingEngine, build_tariff, slow_meter_issue_id
+from .engine import (
+    ENERGY_OPTIONS,
+    BillingEngine,
+    build_tariff,
+    meter_sources,
+    slow_meter_issue_id,
+)
 from .networks import async_get_networks, network_for_entry
 from .services import async_setup_services
 from .sources import async_store_registry_ids
@@ -90,18 +95,14 @@ async def async_setup_entry(
     meter: BillingMeter | None = None
     store: Store[dict[str, Any]] | None = None
     save: Callable[[], None] | None = None
-    if entry.options.get(CONF_IMPORT_ENERGY_ENTITY):
+    # Stored registry ids, which stay the same when a meter is renamed.
+    if "import" in (sources := meter_sources(entry.options)):
         store = _billing_store(hass, entry)
         meter = BillingMeter(
             tariff,
             int(entry.options.get(CONF_BILLING_CYCLE_DAY, DEFAULT_BILLING_CYCLE_DAY)),
             await store.async_load(),
-            # Stored registry ids, which stay the same when a meter is renamed.
-            {
-                side: entry.options[key]
-                for side, key in ENERGY_OPTIONS
-                if entry.options.get(key)
-            },
+            sources,
         )
         save = partial(store.async_delay_save, meter.as_dict, SAVE_DELAY)
 

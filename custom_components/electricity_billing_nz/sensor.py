@@ -84,7 +84,7 @@ async def async_setup_entry(
             CycleTotalSensor(entry, "billing_cycle_estimated_total"),
             LifetimeTotalSensor(entry, "import_cost_total", "import"),
         ]
-        if "export" in engine.energy_entities:
+        if "export" in engine.meter.sides:
             entities += [
                 CycleEnergySensor(entry, "billing_cycle_export_energy", "export"),
                 CycleRateSensor(entry, "billing_cycle_export_energy_rate", "export"),
