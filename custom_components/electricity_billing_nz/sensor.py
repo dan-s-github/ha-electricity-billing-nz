@@ -65,7 +65,7 @@ class RateDescription(SensorEntityDescription):
     per_band: Callable[[Rates], Mapping[str, float]] | None = None
     entity_category: EntityCategory | None = EntityCategory.DIAGNOSTIC
     native_unit_of_measurement: str | None = PRICE_UNIT
-    suggested_display_precision: int | None = PRICE_PRECISION
+    # No suggested precision: the rate as configured, without padded zeros.
 
 
 def _retailer(rates: Rates) -> RetailerVersion:
@@ -105,14 +105,12 @@ RATE_SENSORS = (
         value=lambda r: r.retailer.metering_daily,
         version=_retailer,
         native_unit_of_measurement=DAILY_UNIT,
-        suggested_display_precision=4,
     ),
     RateDescription(
         key="retailer_daily_charge",
         value=lambda r: r.retailer.retailer_daily,
         version=_retailer,
         native_unit_of_measurement=DAILY_UNIT,
-        suggested_display_precision=4,
     ),
     RateDescription(
         key="network_import_rate",
@@ -134,14 +132,12 @@ RATE_SENSORS = (
         value=lambda r: r.network.daily,
         version=_network,
         native_unit_of_measurement=DAILY_UNIT,
-        suggested_display_precision=4,
     ),
     RateDescription(
         key="loss_factor",
         value=lambda r: r.loss.factor,
         version=lambda r: r.loss,
         native_unit_of_measurement=None,
-        suggested_display_precision=4,
     ),
 )
 OPTIONAL_KEYS = (

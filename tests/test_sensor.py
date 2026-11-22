@@ -731,6 +731,8 @@ async def test_diagnostic_sensors_show_the_rates_in_force(
         entry = registry.async_get(entity_id)
         assert entry is not None
         assert entry.entity_category is EntityCategory.DIAGNOSTIC
+        # Shown as configured (0.028, not 0.028000).
+        assert "suggested_display_precision" not in entry.options.get("sensor", {})
     assert ids["retailer_import_margin"] == "sensor.home_import_margin"
     margin = hass.states.get(ids["retailer_import_margin"])
     assert margin.attributes["effective_from"] == "2000-01-01"
