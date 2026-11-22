@@ -6,3 +6,6 @@ __pycache__/
 .mypy_cache/
 .coverage
 htmlcov/
+
+# Invoices and other personal data for local checks (tools/replay_bill.py).
+.import/

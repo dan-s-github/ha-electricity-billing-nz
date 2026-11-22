@@ -18,6 +18,10 @@ Home Assistant InfluxDB integration stores states, plus the config entry:
 - ``history.json`` (optional): ``SELECT history_str FROM …`` for the same
   sensor; fills periods the settled series missed.
 
+With ``--emi NODE``, prices come instead from the Electricity Authority's
+final energy prices for that node (the prices bills use), downloaded from
+EMI by month into ``DIR/emi/``; ``settled.json`` isn't needed.
+
 Power holds from one stored value to the next, as the integration integrates
 it. The InfluxDB integration stores unavailable states outside the ``W``
 series, so an outage (Home Assistant or the inverter's data down) reads as
@@ -33,10 +37,15 @@ from __future__ import annotations
 
 import argparse
 import ast
+import csv
+import io
 import json
 import sys
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -73,6 +82,16 @@ if TYPE_CHECKING:
     from custom_components.electricity_billing_nz.tariff import Tariff
 
 PERIOD = timedelta(minutes=30)
+EMI_URL = (
+    "https://www.emi.ea.govt.nz/Wholesale/Datasets/DispatchAndPricing/"
+    "FinalEnergyPrices/ByMonth/{month}_FinalEnergyPrices.csv"
+)
+# Days, for a month EMI hasn't published as one file.
+EMI_DAY_URL = (
+    "https://www.emi.ea.govt.nz/Wholesale/Datasets/DispatchAndPricing/"
+    "FinalEnergyPrices/{day}_FinalEnergyPrices.csv"
+)
+USER_AGENT = "Mozilla/5.0 (compatible; ha-electricity-billing-nz bill replay)"
 
 
 @dataclass(frozen=True)
@@ -177,6 +196,96 @@ def settled_prices(
     return prices
 
 
+def emi_prices(rows: Iterable[Mapping[str, str]], node: str) -> dict[datetime, float]:
+    """
+    Return a node's final prices by period start (UTC), in NZD/kWh.
+
+    ``rows`` are EMI FinalEnergyPrices records (TradingDate, TradingPeriod,
+    PointOfConnection, DollarsPerMegawattHour). Trading periods count the
+    day's half-hours from NZ midnight, so daylight-saving days have 46 or 50.
+    Rows that don't parse, or whose period isn't in the day, are skipped.
+    """
+    prices = {}
+    for row in rows:
+        if row.get("PointOfConnection") != node:
+            continue
+        try:
+            day = date.fromisoformat(row["TradingDate"])
+            period = int(row["TradingPeriod"])
+            price = float(row["DollarsPerMegawattHour"]) / 1000
+        except KeyError, TypeError, ValueError:
+            continue
+        midnight = nz_midnight(day).astimezone(UTC)
+        start = midnight + PERIOD * (period - 1)
+        if period < 1 or start >= nz_midnight(day + timedelta(days=1)):
+            continue
+        prices[start] = price
+    return prices
+
+
+def emi_months(start: datetime, end: datetime) -> list[str]:
+    """Return the YYYYMM months a cycle from ``start`` to ``end`` covers."""
+    months = []
+    day = start.astimezone(NZ_TZ).date().replace(day=1)
+    while nz_midnight(day) < end:
+        months.append(f"{day:%Y%m}")
+        day = (day.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return months
+
+
+def _download(url: str) -> bytes:
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})  # noqa: S310
+    with urllib.request.urlopen(request, timeout=120) as response:  # noqa: S310
+        return response.read()
+
+
+def fetch_emi(month: str, cache: Path, until: date | None = None) -> bytes:
+    """
+    Return the EMI final prices for a YYYYMM month, cached once complete.
+
+    A month EMI hasn't published as one file is joined from its daily files,
+    up to ``until`` (exclusive) when given; days not published yet are left
+    out, and such a partial month isn't cached.
+    """
+    path = cache / f"{month}_FinalEnergyPrices.csv"
+    if path.exists():
+        return path.read_bytes()
+    try:
+        content = _download(EMI_URL.format(month=month))
+        complete = True
+    except urllib.error.HTTPError as err:
+        if err.code != HTTPStatus.NOT_FOUND:
+            raise
+        content, complete = _emi_days(date(int(month[:4]), int(month[4:]), 1), until)
+    if complete:
+        cache.mkdir(parents=True, exist_ok=True)
+        partial = path.with_suffix(".part")
+        partial.write_bytes(content)
+        partial.replace(path)
+    return content
+
+
+def _emi_days(first: date, until: date | None) -> tuple[bytes, bool]:
+    """Join a month's daily EMI files; return them and whether all were there."""
+    header, rows, complete = b"", [], True
+    day = first
+    while day.month == first.month and (until is None or day < until):
+        try:
+            text = _download(EMI_DAY_URL.format(day=f"{day:%Y%m%d}"))
+        except urllib.error.HTTPError as err:
+            if err.code != HTTPStatus.NOT_FOUND:
+                raise
+            complete = False  # not published yet
+        else:
+            first_line, _, body = text.partition(b"\n")
+            header = header or first_line + b"\n"
+            rows.append(body if body.endswith(b"\n") or not body else body + b"\n")
+        day += timedelta(days=1)
+    if until is not None and day.month == first.month:
+        complete = False  # stopped before the month's end
+    return header + b"".join(rows), complete
+
+
 def cycle_bounds(month: str, cycle_day: int) -> tuple[datetime, datetime]:
     """Return the NZ start of the cycle starting in a YYYY-MM month, and its end."""
     start = date.fromisoformat(f"{month}-01").replace(day=cycle_day)
@@ -201,14 +310,39 @@ def replay(  # noqa: PLR0913
     meter = BillingMeter(
         tariff, cycle_day, sources={"import": "grid", "export": "grid"}
     )
-    gaps = sorted(gaps, key=lambda g: g.since)
+    gaps = list(gaps)
+
+    def in_gap(epoch: float) -> bool:
+        return any(g.since.timestamp() <= epoch < g.until.timestamp() for g in gaps)
+
+    # Only the cycle's readings: the meter keeps two cycles, so earlier months
+    # would push this one out. The last reading before it (outside any gap)
+    # gives the power at the start.
+    ordered = sorted(
+        (row for row in power if not in_gap(row[0])), key=lambda row: row[0]
+    )
+    before = [row for row in ordered if row[0] < start.timestamp()]
+    window = [row for row in ordered if start.timestamp() <= row[0] < end.timestamp()]
+    # No opening power if the last reading is unavailable, or a gap began
+    # after it: the meter was stopped at the cycle's start.
+    last = before[-1] if before else None
+    opening = (
+        [[start.timestamp(), last[1]]]
+        if last is not None
+        and last[1] is not None
+        and not any(last[0] < g.since.timestamp() <= start.timestamp() for g in gaps)
+        and not in_gap(start.timestamp())
+        else []
+    )
+    # Gaps overlapping the cycle; others would meter other cycles.
+    gaps = sorted(
+        (g for g in gaps if g.since < end and g.until > start), key=lambda g: g.since
+    )
     started = list(gaps)  # gaps whose start hasn't been reached
-    for epoch, watts in sorted(power, key=lambda row: row[0]):
+    for epoch, watts in opening + window:
         at = datetime.fromtimestamp(epoch, UTC)
         while started and started[0].since <= at:
-            _stop(meter, started.pop(0).since)
-        if any(gap.since <= at < gap.until for gap in gaps):
-            continue  # inside a gap: not counted
+            _stop(meter, max(started.pop(0).since, start))
         if watts is None:
             _stop(meter, at)
             continue
@@ -304,6 +438,12 @@ def main(argv: list[str] | None = None) -> int:
         "--price-unit", default="c/kWh", help="unit of the settled series"
     )
     parser.add_argument(
+        "--emi",
+        metavar="NODE",
+        help="price with EMI final prices (NZD/MWh) for NODE, e.g. ROS0221, "
+        "instead of settled.json, history.json and --price-unit",
+    )
+    parser.add_argument(
         "--gap",
         action="append",
         default=[],
@@ -316,20 +456,34 @@ def main(argv: list[str] | None = None) -> int:
 
     entry = json.loads((args.data / "entry.json").read_text())
     tariff = load_tariff(entry, args.import_margin)
-    history = args.data / "history.json"
-    prices = settled_prices(
-        query_rows(args.data / "settled.json"),
-        query_rows(history) if history.exists() else (),
-        args.price_unit,
+    cycle_day = int(
+        entry["options"].get(CONF_BILLING_CYCLE_DAY, DEFAULT_BILLING_CYCLE_DAY)
     )
+    if args.emi:
+        start, end = cycle_bounds(args.month, cycle_day)
+        prices: dict[datetime, float] = {}
+        for month in emi_months(start, end):
+            content = fetch_emi(
+                month, args.data / "emi", until=end.astimezone(NZ_TZ).date()
+            )
+            reader = csv.DictReader(io.StringIO(content.decode("utf-8-sig")))
+            prices.update(emi_prices(reader, args.emi))
+        if not prices:
+            msg = f"No EMI final prices for node {args.emi} in the cycle"
+            raise ValueError(msg)
+    else:
+        history = args.data / "history.json"
+        prices = settled_prices(
+            query_rows(args.data / "settled.json"),
+            query_rows(history) if history.exists() else (),
+            args.price_unit,
+        )
     result = replay(
         tariff,
         query_rows(args.data / "power.json"),
         prices,
         args.month,
-        cycle_day=int(
-            entry["options"].get(CONF_BILLING_CYCLE_DAY, DEFAULT_BILLING_CYCLE_DAY)
-        ),
+        cycle_day=cycle_day,
         gaps=args.gap,
     )
     bill = result.bill
