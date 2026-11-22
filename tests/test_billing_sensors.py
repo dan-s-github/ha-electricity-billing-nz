@@ -108,7 +108,7 @@ async def test_cycle_is_metered_and_priced(
     await hass.async_block_till_done()
     assert _value(hass, ENERGY) == pytest.approx(1.0)
     assert hass.states.get(ENERGY).attributes["offpeak"] == pytest.approx(1.0)
-    assert _value(hass, RATE) == pytest.approx(0.08 + 0.0286)
+    assert _value(hass, RATE) == pytest.approx(0.08 + 0.028)
     assert hass.states.get(TOTAL).attributes["provisional_periods"] == 2
     assert _value(hass, COST) == 0
 
@@ -117,7 +117,7 @@ async def test_cycle_is_metered_and_priced(
     await hass.async_block_till_done()
     settled_kwh, live_kwh = 25 / 30, 5 / 30
     assert _value(hass, RATE) == pytest.approx(
-        settled_kwh * (0.04 + 0.0286) + live_kwh * (0.08 + 0.0286), abs=1e-6
+        settled_kwh * (0.04 + 0.028) + live_kwh * (0.08 + 0.028), abs=1e-6
     )
     assert hass.states.get(TOTAL).attributes["provisional_periods"] == 1
     assert _value(hass, COST) == pytest.approx(

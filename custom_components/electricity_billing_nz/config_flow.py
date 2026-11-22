@@ -81,7 +81,7 @@ if TYPE_CHECKING:
     from .networks import Network
     from .tariff import LossVersion, NetworkVersion
 
-# Rounding after c/kWh -> NZD/kWh, so 2.86 is stored as 0.0286.
+# Rounding after c/kWh -> NZD/kWh, so 2.80 is stored as 0.028.
 STORE_DIGITS = 8
 
 SENSOR_SELECTOR = EntitySelector(EntitySelectorConfig(domain="sensor"))

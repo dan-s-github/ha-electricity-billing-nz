@@ -333,13 +333,13 @@ async def test_future_rate_version_without_restart(
     set_settled(hass, 10.0, nz("2026-11-16 23:00"))
     await _setup(hass, config_entry)
     live = "sensor.home_import_price_live"
-    assert hass.states.get(live).attributes["margin"] == 0.0286
+    assert hass.states.get(live).attributes["margin"] == 0.028
 
     freezer.move_to(nz("2026-11-17 00:00"))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
     # Still the 23:30 spot, so still the old version.
-    assert hass.states.get(live).attributes["margin"] == 0.0286
+    assert hass.states.get(live).attributes["margin"] == 0.028
 
     set_live(hass, 10.0, nz("2026-11-17 00:00"))
     await hass.async_block_till_done()

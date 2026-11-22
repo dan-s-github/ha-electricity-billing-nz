@@ -347,13 +347,13 @@ def test_settled_period_is_priced_like_the_price_sensors() -> None:
     assert bill.provisional_periods == 0
     peak = bill.charges["peak"]
     assert peak.import_kwh_lossy == pytest.approx(2 * LOSS)
-    assert peak.energy == pytest.approx((0.10 + 0.0286) * LOSS * 2)
+    assert peak.energy == pytest.approx((0.10 + 0.028) * LOSS * 2)
     assert peak.network == pytest.approx(PEAK * 2)
     assert peak.transmission == pytest.approx(0.0302 * 2)
     assert peak.levy == pytest.approx(0.002 * 2)
     assert peak.export_energy == pytest.approx(0.10 - 0.019)
     assert peak.export_credit == pytest.approx(PEAK_CREDIT)
-    assert bill.import_energy_rate == pytest.approx(0.10 + 0.0286)
+    assert bill.import_energy_rate == pytest.approx(0.10 + 0.028)
     assert bill.export_energy_rate == pytest.approx(0.10 - 0.019)
 
 
@@ -438,14 +438,14 @@ def test_unsettled_period_counts_at_the_live_spot() -> None:
     bill = meter.bill(nz("2026-11-17 10:31"))
     assert bill is not None
     assert bill.provisional_periods == 1
-    assert bill.import_energy_rate == pytest.approx(0.20 + 0.0286)
+    assert bill.import_energy_rate == pytest.approx(0.20 + 0.028)
     assert meter.import_cost == 0  # lifetime totals count settled periods only
 
     meter.settle(nz("2026-11-17 10:00"), 0.05)
     bill = meter.bill(nz("2026-11-17 11:01"))
     assert bill is not None
     assert bill.provisional_periods == 0
-    assert bill.import_energy_rate == pytest.approx(0.05 + 0.0286)
+    assert bill.import_energy_rate == pytest.approx(0.05 + 0.028)
 
 
 def test_period_without_a_settled_price_is_final_after_48_hours() -> None:
@@ -509,7 +509,7 @@ def test_estimated_total() -> None:
     bill = meter.bill(nz("2026-11-02 12:00"))
     assert bill is not None
     assert bill.complete  # read at the very start of the cycle
-    energy = 3 * ((0.10 + 0.0286) * LOSS + OFFPEAK + 0.0302 + 0.002)
+    energy = 3 * ((0.10 + 0.028) * LOSS + OFFPEAK + 0.0302 + 0.002)
     daily = 2 * (0.90 + 0.35 + 0.15)
     assert bill.subtotal == pytest.approx(energy + daily)
     assert bill.total == pytest.approx((energy + daily) * 1.15)

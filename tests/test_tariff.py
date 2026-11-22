@@ -43,7 +43,7 @@ BANDS = ARHLC_2026.bands
 BANDS_2025 = ARHLC_2025.bands
 PLAN = RetailerVersion(
     effective_from=date(2000, 1, 1),
-    import_margin=0.0286,
+    import_margin=0.028,
     export_margin=0.019,
     transmission=0.0302,
     levy=0.002,
@@ -104,7 +104,7 @@ def test_import_breakdown() -> None:
     """The breakdown carries every component, ex GST."""
     result = import_price(TARIFF, 0.12, nz("2026-07-15 17:00"))
     assert result.tou_band == "peak"
-    assert result.margin == 0.0286
+    assert result.margin == 0.028
     assert result.loss_factor == 1.0476
     assert result.network == 0.1504
     assert result.transmission == 0.0302
@@ -144,7 +144,7 @@ def test_version_switch_at_nz_midnight() -> None:
     """A version dated 1 April applies from 00:00 NZ time, not UTC."""
     newer = RetailerVersion(date(2027, 4, 1), import_margin=0.05)
     tariff = Tariff(network=TARIFF.network, loss=TARIFF.loss, retailer=(PLAN, newer))
-    assert import_price(tariff, 0.1, nz("2027-03-31 23:30")).margin == 0.0286
+    assert import_price(tariff, 0.1, nz("2027-03-31 23:30")).margin == 0.028
     assert import_price(tariff, 0.1, nz("2027-04-01 00:00")).margin == 0.05
 
 

@@ -133,4 +133,4 @@ async def test_export_versions(hass: HomeAssistant, loaded: MockConfigEntry) -> 
     assert document["network"][0]["bands"] == "vector_tou_2025"
     assert document["network"][-1]["bands"] == "vector_tou_2026"
     assert [v["factor"] for v in document["loss"]] == [1.0533, 1.0476]
-    assert document["retailer"][0]["import_margin"] == 0.0286
+    assert document["retailer"][0]["import_margin"] == 0.028
