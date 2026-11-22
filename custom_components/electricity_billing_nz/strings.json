@@ -101,9 +101,11 @@
       "invalid_icp": "Enter the 15-character ICP number from your bill (10 digits, 2 letters, then 3 letters or digits), or leave it empty.",
       "icp_in_use": "Another entry already uses this ICP number.",
       "icp_in_setup": "A setup that hasn't finished is using this ICP number. Finish or close it first.",
-      "invalid_energy_unit": "The sensor's unit must be Wh, kWh or MWh.",
-      "not_cumulative": "The sensor must be a running total of energy (state class total or total_increasing).",
-      "import_energy_required": "Choose an import meter to use an export meter."
+      "not_cumulative": "An energy meter must be a running total (state class total or total_increasing).",
+      "import_energy_required": "Choose an import meter to use an export meter.",
+      "invalid_meter_unit": "The sensor must read energy (Wh, kWh or MWh) or power (W, kW or MW).",
+      "invalid_power_unit": "The sensor must read power (W, kW or MW).",
+      "grid_power_exclusive": "Use either the signed grid power sensor or the import and export meters, not both."
     },
     "step": {
       "init": {
@@ -167,16 +169,18 @@
       },
       "billing": {
         "title": "Billing cycle",
-        "description": "Meter the energy you import and export, priced at each trading period's settled price, to estimate the bill for the current cycle. Leave the import meter empty to turn this off.",
+        "description": "Meter the energy you import and export, priced at each trading period's settled price, to estimate the bill for the current cycle. Use energy meters, power sensors, or one signed grid power sensor. Energy meters must update at least every half hour; power sensors may report only when they change. Leave the meters empty to turn this off.",
         "data": {
-          "import_energy_entity": "Grid import energy",
-          "export_energy_entity": "Grid export energy",
-          "billing_cycle_day": "Billing cycle start day"
+          "import_energy_entity": "Grid import meter",
+          "export_energy_entity": "Grid export meter",
+          "billing_cycle_day": "Billing cycle start day",
+          "grid_power_entity": "Grid power (signed)"
         },
         "data_description": {
-          "import_energy_entity": "A meter of energy taken from the grid, in Wh, kWh or MWh.",
-          "export_energy_entity": "Optional. A meter of energy sent to the grid.",
-          "billing_cycle_day": "The day of the month your bill starts on (1 to 28)."
+          "import_energy_entity": "Energy taken from the grid: an energy meter (Wh, kWh or MWh, a running total) or a power sensor (W, kW or MW), which is integrated.",
+          "export_energy_entity": "Optional. Energy sent to the grid, read the same way.",
+          "billing_cycle_day": "The day of the month your bill starts on (1 to 28).",
+          "grid_power_entity": "Instead of the two meters: one power sensor that is positive when importing and negative when exporting."
         }
       },
       "connection": {
@@ -312,6 +316,12 @@
           "description": "The ICP to export."
         }
       }
+    }
+  },
+  "issues": {
+    "slow_meter": {
+      "title": "Energy meter reports too rarely for half-hour pricing",
+      "description": "In {entry}, {entity_id} reported {kwh} kWh after {minutes} minutes without a reading. Billing prices each half-hour at its own spot price, so it can only share that energy evenly over the gap, and the bill estimate is priced at the wrong half-hours.\n\nIn the entry's billing options, choose a meter that updates at least every half hour, such as an Integral helper on your grid power sensor. Daily or cloud statistics usually update too rarely.\n\nThis is flagged when a meter goes more than {limit} minutes without a reading and then reports at least {min_kwh} kWh; a gap while the meter was unavailable or Home Assistant was down doesn't count. It is cleared when the entry reloads (as choosing a different meter does) or Home Assistant restarts, and comes back if the meter still reports too rarely."
     }
   }
 }

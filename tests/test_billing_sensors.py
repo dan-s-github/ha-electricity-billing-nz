@@ -9,6 +9,7 @@ from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant.common import (
     MockConfigEntry,
     async_fire_time_changed,
@@ -173,6 +174,199 @@ async def test_unchanged_reading_moves_the_baseline(
 
     # All of it in the 12:00 period, none spread back to 10:05.
     assert hass.states.get(TOTAL).attributes["provisional_periods"] == 1
+
+
+def _set_power(hass: HomeAssistant, entity_id: str, watts: float | str) -> None:
+    hass.states.async_set(
+        entity_id,
+        str(watts),
+        {
+            "unit_of_measurement": "W",
+            "device_class": "power",
+            "state_class": "measurement",
+        },
+    )
+
+
+async def test_steady_power_settles_in_its_period(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A power sensor that doesn't change still fills each period in time."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Home",
+        data=entry_data(),
+        options=_options(import_energy_entity="sensor.grid_import_power"),
+    )
+    entry.add_to_hass(hass)
+    freezer.move_to(nz("2026-11-17 10:00"))
+    set_live(hass, 8.0, nz("2026-11-17 10:00"))
+    _set_power(hass, "sensor.grid_import_power", 2000)
+    await _setup(hass, entry)
+
+    # No new reading: the 10:30 boundary counts the held 2 kW into 10:00.
+    freezer.move_to(nz("2026-11-17 10:30"))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert _value(hass, ENERGY) == pytest.approx(1.0)
+
+    freezer.move_to(nz("2026-11-17 10:35"))
+    set_settled(hass, 4.0, nz("2026-11-17 10:00"))
+    await hass.async_block_till_done()
+    assert _value(hass, COST) == pytest.approx(
+        round(template_import(0.04, peak=False), 4)
+    )
+
+
+async def test_held_power_is_saved_up_to_now(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    hass_storage: dict[str, Any],
+) -> None:
+    """Saving counts the power held since the last reading, so it isn't lost."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Home",
+        data=entry_data(),
+        options=_options(import_energy_entity="sensor.grid_import_power"),
+    )
+    entry.add_to_hass(hass)
+    freezer.move_to(nz("2026-11-17 10:00"))
+    _set_power(hass, "sensor.grid_import_power", 3000)
+    await _setup(hass, entry)
+
+    freezer.move_to(nz("2026-11-17 10:20"))
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    stored = hass_storage[f"{DOMAIN}.{entry.entry_id}"]["data"]
+    assert sum(p["import_kwh"] for p in stored["pending"]) == pytest.approx(1.0)
+
+
+async def test_signed_grid_power_meters_both_sides(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """One signed sensor: positive is import, negative export."""
+    options = _options(grid_power_entity="sensor.grid_power")
+    del options["import_energy_entity"], options["export_energy_entity"]
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Home", data=entry_data(), options=options
+    )
+    entry.add_to_hass(hass)
+    freezer.move_to(nz("2026-11-17 10:00"))
+    set_live(hass, 8.0, nz("2026-11-17 10:00"))
+    _set_power(hass, "sensor.grid_power", 1000)
+    await _setup(hass, entry)
+    assert hass.states.get(EXPORT_ENERGY) is not None
+
+    freezer.move_to(nz("2026-11-17 10:30"))
+    _set_power(hass, "sensor.grid_power", -3000)
+    await hass.async_block_till_done()
+    freezer.move_to(nz("2026-11-17 10:50"))
+    _set_power(hass, "sensor.grid_power", 0)
+    await hass.async_block_till_done()
+    # Power readings refresh the bill at most every 30 seconds.
+    freezer.tick(31)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    assert _value(hass, ENERGY) == pytest.approx(0.5)
+    assert _value(hass, EXPORT_ENERGY) == pytest.approx(1.0)
+
+
+async def test_options_accept_a_signed_grid_power_sensor(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """The signed grid sensor turns billing on in place of the two meters."""
+    _set_power(hass, "sensor.grid_power", 500)
+    result = await _billing_options(hass, config_entry)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"grid_power_entity": "sensor.grid_power", "billing_cycle_day": 1},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert config_entry.options["grid_power_entity"] == "sensor.grid_power"
+    assert hass.states.get(ENERGY) is not None
+    assert hass.states.get(EXPORT_ENERGY) is not None
+
+
+async def test_meter_reporting_too_rarely_raises_a_repair(
+    hass: HomeAssistant,
+    billing_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A meter with long gaps between readings is flagged once a run."""
+    issue_id = f"slow_meter_{billing_entry.entry_id}_import"
+    registry = ir.async_get(hass)
+    freezer.move_to(nz("2026-11-17 10:05"))
+    _set_meter(hass, IMPORT_METER, 100.0)
+    await _setup(hass, billing_entry)
+
+    freezer.move_to(nz("2026-11-17 11:05"))
+    _set_meter(hass, IMPORT_METER, 101.2)  # an hour: fine
+    await hass.async_block_till_done()
+    assert registry.async_get_issue(DOMAIN, issue_id) is None
+
+    freezer.move_to(nz("2026-11-17 13:05"))
+    _set_meter(hass, IMPORT_METER, 102.4)
+    await hass.async_block_till_done()
+    issue = registry.async_get_issue(DOMAIN, issue_id)
+    assert issue is not None
+    assert issue.translation_placeholders["entity_id"] == IMPORT_METER
+    assert issue.translation_placeholders["minutes"] == "120"
+    assert caplog.text.count("without a reading") == 1
+
+    # Logged and raised once a run.
+    freezer.move_to(nz("2026-11-17 15:05"))
+    _set_meter(hass, IMPORT_METER, 103.6)
+    await hass.async_block_till_done()
+    assert caplog.text.count("without a reading") == 1
+
+    # Reloading (as changing the meter does) clears it.
+    assert await hass.config_entries.async_reload(billing_entry.entry_id)
+    await hass.async_block_till_done()
+    assert registry.async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_unavailable_meter_is_not_flagged(
+    hass: HomeAssistant,
+    billing_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A gap while the meter was unavailable isn't the meter reporting rarely."""
+    freezer.move_to(nz("2026-11-17 10:05"))
+    _set_meter(hass, IMPORT_METER, 100.0)
+    await _setup(hass, billing_entry)
+    freezer.move_to(nz("2026-11-17 10:10"))
+    _set_meter(hass, IMPORT_METER, "unavailable")
+    await hass.async_block_till_done()
+    freezer.move_to(nz("2026-11-17 13:05"))
+    _set_meter(hass, IMPORT_METER, 102.4)
+    await hass.async_block_till_done()
+    issue_id = f"slow_meter_{billing_entry.entry_id}_import"
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_removing_the_entry_clears_the_repair(
+    hass: HomeAssistant,
+    billing_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A removed entry leaves no Repairs issue behind."""
+    freezer.move_to(nz("2026-11-17 10:05"))
+    _set_meter(hass, IMPORT_METER, 100.0)
+    await _setup(hass, billing_entry)
+    freezer.move_to(nz("2026-11-17 13:05"))
+    _set_meter(hass, IMPORT_METER, 102.4)
+    await hass.async_block_till_done()
+    issue_id = f"slow_meter_{billing_entry.entry_id}_import"
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+
+    assert await hass.config_entries.async_remove(billing_entry.entry_id)
+    await hass.async_block_till_done()
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
 
 
 async def test_first_reading_after_setup_starts_the_bill(
@@ -343,8 +537,16 @@ async def test_options_turn_billing_on(
             {"export_energy_entity": "duplicate_source"},
         ),
         (
-            {"import_energy_entity": "sensor.power"},
-            {"import_energy_entity": "invalid_energy_unit"},
+            {"import_energy_entity": "sensor.temperature"},
+            {"import_energy_entity": "invalid_meter_unit"},
+        ),
+        (
+            {"grid_power_entity": IMPORT_METER},
+            {"grid_power_entity": "invalid_power_unit"},
+        ),
+        (
+            {"import_energy_entity": IMPORT_METER, "grid_power_entity": "sensor.power"},
+            {"grid_power_entity": "grid_power_exclusive"},
         ),
         (
             {"import_energy_entity": "sensor.missing"},
@@ -362,10 +564,11 @@ async def test_options_billing_errors(
     values: dict[str, str],
     errors: dict[str, str],
 ) -> None:
-    """The meters must exist, be energy totals, differ, and include import."""
+    """The meters must exist, read energy totals or power, differ, include import."""
     _set_meter(hass, IMPORT_METER, 100.0)
     _set_meter(hass, EXPORT_METER, 5.0)
     hass.states.async_set("sensor.power", "300", {"unit_of_measurement": "W"})
+    hass.states.async_set("sensor.temperature", "21", {"unit_of_measurement": "°C"})
     hass.states.async_set(
         "sensor.energy_reading",
         "3",

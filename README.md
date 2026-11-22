@@ -75,7 +75,8 @@ off-peak) that period *t* falls in, using the lines company's peak windows.
     for EMHASS and similar optimisers (needs the forecast sensor)
   - daily charge (NZD/day)
   - current time-of-use band and when it next changes
-- **Billing cycle** (optional, needs grid import and export energy sensors):
+- **Billing cycle** (optional, needs grid import and export power or energy
+  sensors):
   - import and export kWh this cycle, per time-of-use band
   - average import and export energy rates (ex GST), to set against the
     bill's energy lines
@@ -157,10 +158,12 @@ When a rate changes later, open the entry's **Configure** menu:
   can't be before the bundled data starts.
 - **Change source entities**: the live and forecast sensors. The settled
   sensor is fixed; to change it, re-add the entry.
-- **Billing cycle**: the grid import and export energy sensors (Wh, kWh or
-  MWh) and the day of the month your bill starts on (1 to 28). See below.
-  The meters must be running totals (state class `total` or
-  `total_increasing`), like the ones the Energy dashboard uses.
+- **Billing cycle**: the grid import and export meters and the day of the
+  month your bill starts on (1 to 28). Each meter is a power sensor (W, kW or
+  MW) or an energy meter (Wh, kWh or MWh, a running total with state class
+  `total` or `total_increasing`). Instead of the two, you can choose one
+  signed grid power sensor: positive when importing, negative when exporting.
+  See [Choosing the meters](#choosing-the-meters).
 - **ICP number**.
 - **GST**: whether the reported prices include GST. Changing it moves the
   price history by 15% from then on, and `price_at` uses the current setting
@@ -185,7 +188,7 @@ before the bundled network data starts can't be priced.
 
 ### Billing cycle
 
-With the energy sensors set, each trading period's energy is priced at that
+With the meters set, each trading period's energy is priced at that
 period's settled spot, with the rates in force then, so the estimate follows
 the bill's half-hourly pricing.
 
@@ -200,12 +203,14 @@ the bill's half-hourly pricing.
 - Bills use the final wholesale prices, published days later; the settled
   prices are interim, so expect small differences.
 - The estimate includes GST unless the entry's GST option is off.
-- The meter is stored with the entry and survives restarts. A gap while Home
-  Assistant was down is shared evenly over the periods it covers.
-- Energy between two readings is shared evenly over the time between them.
-  A meter that reports its unchanged value marks time when nothing was used;
-  one that only reports changes (some cloud statistics do, in coarse steps)
-  has its energy spread back to the last change.
+- The meter is stored with the entry and survives restarts. With an energy
+  meter, a gap while Home Assistant was down is shared evenly over the
+  periods it covers; with a power sensor, it isn't counted.
+- An energy meter's increase between two readings is shared evenly over the
+  time between them. A meter that reports its unchanged value marks time
+  when nothing was used; one that only reports changes has its energy
+  spread back to the last change. A power sensor's value holds until the
+  next, and is counted into each period as it ends.
 - A rate version or network override dated into the current or previous
   cycle reprices it when saved. The lifetime cost and earnings totals keep
   what each period cost when it settled.
@@ -214,6 +219,33 @@ the bill's half-hourly pricing.
 - Changing a meter starts it from a new baseline. Changing the cycle day
   moves the kept periods into the new day's cycles; the earliest is marked
   incomplete.
+
+#### Choosing the meters
+
+Each half-hour's energy is priced at that half-hour's spot, so billing needs
+to know when the energy was used.
+
+- **Power sensors (best):** billing integrates them itself, holding each
+  value until the next. A sensor that only reports changes can sit at 0 W for
+  hours (a battery covering the house overnight, say) and the energy still
+  lands in exactly the right half-hours. Use the grid import and export power,
+  or one signed grid power sensor. Energy isn't counted while Home Assistant
+  is down or the sensor is unavailable, as the power then is unknown.
+- **Energy meters:** a smart meter or CT clamp total that updates at least
+  every half hour. Energy between two readings is shared evenly over the gap,
+  so a meter that only reports changes, or in coarse steps, puts it in the
+  wrong half-hours. Energy used while Home Assistant was down is caught up.
+- **Not suitable:** daily or cloud statistics that change in coarse steps or
+  only a few times a day. A step reported mid-morning is shared evenly back
+  to the previous one, often overnight, and priced at the wrong spots.
+
+As a check, if an energy meter goes more than an hour without a reading and
+then reports at least 0.5 kWh, the entry logs a warning and raises a Repairs
+issue naming the meter. It doesn't catch every meter that's too slow, so
+check yours updates often enough. A gap while the meter was unavailable or
+Home Assistant was down doesn't count. The issue is cleared when the entry
+reloads (as choosing a different meter does) or Home Assistant restarts, and
+comes back if the meter still reports too rarely.
 
 ## Not in scope
 

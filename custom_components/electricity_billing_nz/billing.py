@@ -49,20 +49,60 @@ UNKNOWN_BAND = "unknown"
 # A reading this far below the last one is a meter reset; a smaller drop is
 # noise and ignored. Home Assistant's statistics use the same 10% rule.
 RESET_FRACTION = 0.9
+# A meter that reports at least SLOW_METER_KWH after more than
+# SLOW_METER_GAP without a reading can't say which half-hours the energy was
+# used in: it's spread evenly over the gap, and priced at the wrong spots.
+SLOW_METER_GAP = timedelta(hours=1)
+SLOW_METER_KWH = 0.5
 # Energy units the meters accept, as multipliers to kWh.
 ENERGY_UNITS = {"Wh": 0.001, "kWh": 1.0, "MWh": 1000.0}
+# Power units the meters accept, as multipliers to kW.
+POWER_UNITS = {"W": 0.001, "kW": 1.0, "MW": 1000.0}
+
+
+def meter_kind(unit: str | None) -> Literal["energy", "power"] | None:
+    """Return whether a meter's unit is one of energy or power, or None."""
+    unit = (unit or "").strip()
+    if unit in ENERGY_UNITS:
+        return "energy"
+    if unit in POWER_UNITS:
+        return "power"
+    return None
+
+
+def read_meter(
+    value: str | float, unit: str | None
+) -> tuple[Literal["energy", "power"], float] | None:
+    """Return a meter's value as energy in kWh or power in kW, or None."""
+    try:
+        if (kind := meter_kind(unit)) == "energy":
+            return kind, to_kwh(float(value), unit)
+        if kind == "power":
+            return kind, to_kw(float(value), unit)
+    except ValueError:
+        pass
+    return None
+
+
+def _scale(value: float, unit: str | None, units: Mapping[str, float]) -> float:
+    if not math.isfinite(value):
+        msg = f"Not a reading: {value!r}"
+        raise ValueError(msg)
+    scale = units.get((unit or "").strip())
+    if scale is None:
+        msg = f"Unsupported unit: {unit!r}"
+        raise ValueError(msg)
+    return value * scale
 
 
 def to_kwh(value: float, unit: str | None) -> float:
     """Convert an energy reading in Wh, kWh or MWh to kWh; raises ValueError."""
-    if not math.isfinite(value):
-        msg = f"Not a reading: {value!r}"
-        raise ValueError(msg)
-    scale = ENERGY_UNITS.get((unit or "").strip())
-    if scale is None:
-        msg = f"Unsupported energy unit: {unit!r}"
-        raise ValueError(msg)
-    return value * scale
+    return _scale(value, unit, ENERGY_UNITS)
+
+
+def to_kw(value: float, unit: str | None) -> float:
+    """Convert a power reading in W, kW or MW to kW; raises ValueError."""
+    return _scale(value, unit, POWER_UNITS)
 
 
 def cycle_start(day: date, cycle_day: int) -> date:
@@ -242,6 +282,14 @@ class Reading:
 
     value: float
     at: datetime
+
+
+@dataclass
+class SlowReading:
+    """Energy a meter reported only after a long gap without readings."""
+
+    kwh: float
+    gap: timedelta
 
 
 @dataclass(frozen=True)
@@ -436,7 +484,17 @@ class BillingMeter:
         self.cycle_day = cycle_day
         self.sources: dict[Side, str] = dict(sources or {})
         self.sides: tuple[Side, ...] = tuple(self.sources) or ("import",)
+        # Energy meters' last readings, in kWh.
         self.readings: dict[Side, Reading] = {}
+        # Power sensors' last readings, in kW: each holds until the next.
+        self.power: dict[Side, Reading] = {}
+        # Sides whose next reading follows a gap that isn't the meter's
+        # fault: a restart, or the meter being unavailable. An energy meter's
+        # gap isn't flagged as slow; a power sensor's isn't integrated, as
+        # its power then is unknown.
+        self._exempt: set[Side] = set()
+        # Long gaps found by add_reading, for the caller to report.
+        self.slow: dict[Side, SlowReading] = {}
         # When every meter had a first reading (metering began, or restarted):
         # cycles are complete only if it was before their start.
         self.since: datetime | None = None
@@ -452,13 +510,17 @@ class BillingMeter:
 
     def _load(self, data: Mapping[str, Any]) -> None:
         stored_sources = data.get("sources", {})
-        self.readings = {
-            side: Reading(r["value"], datetime.fromisoformat(r["at"]))
-            for side, r in data.get("readings", {}).items()
-            if stored_sources.get(side) == self.sources.get(side)
-        }
+        self.readings, self.power = (
+            {
+                side: Reading(r["value"], datetime.fromisoformat(r["at"]))
+                for side, r in data.get(key, {}).items()
+                if stored_sources.get(side) == self.sources.get(side)
+            }
+            for key in ("readings", "power")
+        )
+        self._exempt = set(self.readings) | set(self.power)
         # A meter without a stored reading (new or changed) moves it on.
-        if data.get("since") and all(side in self.readings for side in self.sides):
+        if data.get("since") and all(self._has_baseline(s) for s in self.sides):
             self.since = datetime.fromisoformat(data["since"])
         self.pending = {
             datetime.fromisoformat(p["start"]): Pending(
@@ -489,7 +551,9 @@ class BillingMeter:
         elif self.since is not None:
             # Totals can't be split into other cycles: meter the new ones
             # from the last reading on.
-            self.since = max(r.at for r in self.readings.values())
+            self.since = max(
+                r.at for r in (*self.readings.values(), *self.power.values())
+            )
         for cycle in self.cycles.values():
             self._retally(cycle)
 
@@ -533,6 +597,10 @@ class BillingMeter:
             "readings": {
                 side: {"value": r.value, "at": r.at.isoformat()}
                 for side, r in self.readings.items()
+            },
+            "power": {
+                side: {"value": r.value, "at": r.at.isoformat()}
+                for side, r in self.power.items()
             },
             "cycles": [c.as_dict() for c in self.cycles.values()],
             "pending": [
@@ -580,35 +648,124 @@ class BillingMeter:
         between. A reading well below the last is a meter reset, so all of it
         is new; a small drop is ignored, keeping the higher baseline.
         """
+        self.slow.pop(side, None)
         last = self.readings.get(side)
         if last is None:
-            # The first reading is the baseline; make sure the cycle exists.
             self.readings[side] = Reading(value, at)
-            cycle = self._cycle_for(at)
-            if self.since is None and all(s in self.readings for s in self.sides):
-                self.since = at
-                if cycle is not None:
-                    cycle.since = max(cycle.since, at)
-            return True
+            return self._first_reading(at)
         if value >= last.value:
             used = value - last.value
         elif value < last.value * RESET_FRACTION:
             used = value
         else:
             return False
+        # The exemption lasts until the baseline moves on.
+        exempt = side in self._exempt
+        self._exempt.discard(side)
+        if not exempt and used >= SLOW_METER_KWH and at - last.at > SLOW_METER_GAP:
+            self.slow[side] = SlowReading(used, at - last.at)
         # An unchanged reading moves the baseline on, so the next increase
         # isn't spread back over time when nothing was used.
         self.readings[side] = Reading(value, at)
         if used <= 0:
             return False
-        for start, kwh in spread(last.at, at, used):
-            self._cycle_for(start)
-            usage = self.pending.setdefault(start, Pending())
-            if side == "import":
-                usage.import_kwh += kwh
-            else:
-                usage.export_kwh += kwh
+        self._add_energy(side, last.at, at, used)
         return True
+
+    def add_power(self, side: Side, kw: float, at: datetime) -> bool:
+        """
+        Count a power reading in kW; return True if the bill may have changed.
+
+        The last reading's power held until this one: a sensor that reports
+        only changes can be idle for hours and still be placed exactly.
+        Negative power counts as none.
+        """
+        last = self.power.get(side)
+        if last is not None and at < last.at:
+            # Stamped before the last advance: the new power holds from then,
+            # and is known from then, so an exemption ends here too.
+            self.power[side] = Reading(max(kw, 0.0), last.at)
+            self._exempt.discard(side)
+            return False
+        self.power[side] = Reading(max(kw, 0.0), at)
+        if last is None:
+            return self._first_reading(at)
+        if side in self._exempt:
+            # The power since the last reading is unknown: start afresh.
+            self._exempt.discard(side)
+            return False
+        return self._integrate(side, last, at)
+
+    def advance(self, now: datetime) -> bool:
+        """
+        Count the power sensors' held power up to ``now``.
+
+        Called before periods settle and at each period boundary, so energy
+        from a steady power lands in its periods before they're priced.
+        """
+        changed = False
+        for side, last in list(self.power.items()):
+            if side in self._exempt or now <= last.at:
+                continue
+            self.power[side] = Reading(last.value, now)
+            changed |= self._integrate(side, last, now)
+        return changed
+
+    def _integrate(self, side: Side, last: Reading, until: datetime) -> bool:
+        kwh = last.value * (until - last.at).total_seconds() / 3600
+        if kwh <= 0:
+            return False
+        self._add_energy(side, last.at, until, kwh)
+        return True
+
+    def _has_baseline(self, side: Side) -> bool:
+        return side in self.readings or side in self.power
+
+    def _first_reading(self, at: datetime) -> bool:
+        """Make sure the cycle exists; note when every meter has a baseline."""
+        cycle = self._cycle_for(at)
+        if self.since is None and all(self._has_baseline(s) for s in self.sides):
+            self.since = at
+            if cycle is not None:
+                cycle.since = max(cycle.since, at)
+        return True
+
+    def _add_energy(
+        self, side: Side, since: datetime, until: datetime, used: float
+    ) -> None:
+        """Share energy used from ``since`` to ``until`` over its periods."""
+        for start, kwh in spread(since, until, used):
+            imp, exp = (kwh, 0.0) if side == "import" else (0.0, kwh)
+            cycle = self._cycle_for(start)
+            if cycle is not None and (final := cycle.periods.get(start)) is not None:
+                # Read late, into a period already made final: it joins that
+                # period at its price, which won't be settled again.
+                self._add_to_final(cycle, start, final, imp, exp)
+                continue
+            usage = self.pending.setdefault(start, Pending())
+            usage.import_kwh += imp
+            usage.export_kwh += exp
+
+    def forget_restart(self) -> None:
+        """Drop the restart exemption: loaded on a reload, nothing was down."""
+        self._exempt.clear()
+
+    def mark_unavailable(self, side: Side, now: datetime) -> bool:
+        """
+        Note the meter went unavailable at ``now``; return True if energy was added.
+
+        A power sensor's held power counts up to now; its gap from then on
+        isn't counted. An energy meter's next gap isn't flagged as slow.
+        """
+        changed = False
+        if side in self.power and side not in self._exempt:
+            last = self.power[side]
+            if now > last.at:
+                self.power[side] = Reading(last.value, now)
+                changed = self._integrate(side, last, now)
+        if self._has_baseline(side):
+            self._exempt.add(side)
+        return changed
 
     def set_live_spot(self, start: datetime, spot: float) -> None:
         """Record the live spot for a period, its price until it settles."""
@@ -635,15 +792,41 @@ class BillingMeter:
         key = start.astimezone(UTC)
         period = Period(usage.import_kwh, usage.export_kwh, spot, settled)
         if (cycle := self._cycle_for(key)) is not None:
+            if (final := cycle.periods.get(key)) is not None:
+                # add_reading sends energy for final periods to them, so
+                # this is only a safeguard: add to the period, don't replace it.
+                self._add_to_final(
+                    cycle, key, final, usage.import_kwh, usage.export_kwh
+                )
+                return True
             cycle.periods[key] = period
             priced = self._add_final(cycle.totals, key, period)
         else:
             # Too old for a kept cycle: it still counts in the lifetime totals.
             priced = _tally(self.tariff, Totals(), key, period, spot)
+        self._count_lifetime(priced)
+        return True
+
+    def _count_lifetime(self, priced: tuple[float, float] | None) -> None:
+        """Add a priced period's cost and earnings to the lifetime totals."""
         if priced is not None:
             self.import_cost += priced[0]
             self.export_earnings += priced[1]
-        return True
+
+    def _add_to_final(
+        self,
+        cycle: Cycle,
+        key: datetime,
+        final: Period,
+        import_kwh: float,
+        export_kwh: float,
+    ) -> None:
+        """Add late energy to a final period, at the spot it was priced at."""
+        final.import_kwh += import_kwh
+        final.export_kwh += export_kwh
+        late = Period(import_kwh, export_kwh, final.spot, final.settled)
+        # The period is already counted as unsettled or unpriced if it is.
+        self._count_lifetime(_tally(self.tariff, cycle.totals, key, late, final.spot))
 
     def tick(self, now: datetime) -> bool:
         """
@@ -654,7 +837,7 @@ class BillingMeter:
         changed = False
         start = cycle_start(now.astimezone(NZ_TZ).date(), self.cycle_day)
         # Without a reading there's nothing to meter a cycle from yet.
-        if self.readings and start not in self.cycles:
+        if (self.readings or self.power) and start not in self.cycles:
             self._cycle_for(now)
             changed = True
         cutoff = now.astimezone(UTC) - PROVISIONAL_LIMIT

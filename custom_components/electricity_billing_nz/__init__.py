@@ -10,16 +10,22 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.storage import Store
 
 from .billing import STORAGE_VERSION, BillingMeter
 from .const import (
     CONF_BILLING_CYCLE_DAY,
-    CONF_IMPORT_ENERGY_ENTITY,
     DEFAULT_BILLING_CYCLE_DAY,
     DOMAIN,
 )
-from .engine import ENERGY_OPTIONS, BillingEngine, build_tariff
+from .engine import (
+    ENERGY_OPTIONS,
+    BillingEngine,
+    build_tariff,
+    meter_sources,
+    slow_meter_issue_id,
+)
 from .networks import async_get_networks, network_for_entry
 from .services import async_setup_services
 from .sources import async_store_registry_ids
@@ -89,18 +95,14 @@ async def async_setup_entry(
     meter: BillingMeter | None = None
     store: Store[dict[str, Any]] | None = None
     save: Callable[[], None] | None = None
-    if entry.options.get(CONF_IMPORT_ENERGY_ENTITY):
+    # Stored registry ids, which stay the same when a meter is renamed.
+    if "import" in (sources := meter_sources(entry.options)):
         store = _billing_store(hass, entry)
         meter = BillingMeter(
             tariff,
             int(entry.options.get(CONF_BILLING_CYCLE_DAY, DEFAULT_BILLING_CYCLE_DAY)),
             await store.async_load(),
-            # Stored registry ids, which stay the same when a meter is renamed.
-            {
-                side: entry.options[key]
-                for side, key in ENERGY_OPTIONS
-                if entry.options.get(key)
-            },
+            sources,
         )
         save = partial(store.async_delay_save, meter.as_dict, SAVE_DELAY)
 
@@ -122,6 +124,8 @@ async def async_unload_entry(
     """Unload a config entry, saving the billing meter first."""
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
+    # A slow meter is flagged again by the next run if it still is.
+    _delete_slow_meter_issues(hass, entry)
     runtime = entry.runtime_data
     # Stop first, so no update can schedule a save after this one.
     runtime.engine.async_stop()
@@ -134,7 +138,14 @@ async def async_remove_entry(
     hass: HomeAssistant, entry: ElectricityBillingNzConfigEntry
 ) -> None:
     """Delete the entry's billing meter."""
+    _delete_slow_meter_issues(hass, entry)
     await _billing_store(hass, entry).async_remove()
+
+
+def _delete_slow_meter_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete the entry's slow-meter issues."""
+    for side, _ in ENERGY_OPTIONS:
+        ir.async_delete_issue(hass, DOMAIN, slow_meter_issue_id(entry.entry_id, side))
 
 
 class _BillingStore(Store[dict[str, Any]]):

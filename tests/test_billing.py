@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -143,6 +144,183 @@ def test_small_drop_is_ignored() -> None:
     assert bill.import_kwh == pytest.approx(0.5)
 
 
+def test_long_gap_with_energy_is_a_slow_reading() -> None:
+    """Energy reported after over an hour without a reading is flagged."""
+    meter = _meter()
+    meter.add_reading("export", 0.0, nz("2026-11-17 06:00"))
+    meter.add_reading("export", 1.2, nz("2026-11-17 09:00"))
+    assert meter.slow["export"].kwh == pytest.approx(1.2)
+    assert meter.slow["export"].gap == timedelta(hours=3)
+
+
+@pytest.mark.parametrize(
+    ("kwh", "minutes"),
+    [
+        (0.1, 600),  # a fine meter's first step after an idle night
+        (1.2, 60),  # an hourly meter: not over the limit
+    ],
+)
+def test_short_gap_or_little_energy_is_not_slow(kwh: float, minutes: int) -> None:
+    """Only a long gap with real energy in it is flagged."""
+    meter = _meter()
+    meter.add_reading("import", 10.0, nz("2026-11-17 00:00"))
+    meter.add_reading(
+        "import", 10.0 + kwh, nz("2026-11-17 00:00") + timedelta(minutes=minutes)
+    )
+    assert not meter.slow
+
+
+def test_gap_over_a_restart_is_not_slow() -> None:
+    """The first increase after loading covers the downtime: not flagged."""
+    meter = _meter()
+    meter.add_reading("import", 10.0, nz("2026-11-17 00:00"))
+    loaded = BillingMeter(TARIFF, 1, meter.as_dict())
+    loaded.add_reading("import", 12.0, nz("2026-11-17 05:00"))
+    assert not loaded.slow
+    loaded.add_reading("import", 14.0, nz("2026-11-17 08:00"))
+    assert "import" in loaded.slow
+
+
+def test_small_drop_after_a_restart_keeps_the_exemption() -> None:
+    """A noisy first reading doesn't move the baseline, so it isn't used up."""
+    meter = _meter()
+    meter.add_reading("import", 5000.0, nz("2026-11-17 00:00"))
+    loaded = BillingMeter(TARIFF, 1, meter.as_dict())
+    assert not loaded.add_reading("import", 4999.9, nz("2026-11-17 06:00"))
+    loaded.add_reading("import", 5003.0, nz("2026-11-17 06:05"))
+    assert not loaded.slow
+
+
+def test_exemption_ends_when_the_baseline_moves() -> None:
+    """After an outage, the meter's own later gaps are flagged."""
+    meter = _meter()
+    meter.add_reading("import", 10.0, nz("2026-11-17 00:00"))
+    meter.mark_unavailable("import", nz("2026-11-17 00:01"))
+    meter.add_reading("import", 10.0, nz("2026-11-17 00:05"))  # back, unchanged
+    meter.add_reading("import", 13.0, nz("2026-11-17 06:00"))
+    assert "import" in meter.slow
+
+
+def test_reload_has_no_exemption() -> None:
+    """Loaded on a reload, the first slow gap is the meter's own."""
+    meter = _meter()
+    meter.add_reading("import", 10.0, nz("2026-11-17 00:00"))
+    loaded = BillingMeter(TARIFF, 1, meter.as_dict())
+    loaded.forget_restart()
+    loaded.add_reading("import", 13.0, nz("2026-11-17 03:00"))
+    assert "import" in loaded.slow
+
+
+def test_gap_while_unavailable_is_not_slow() -> None:
+    """The increase after the meter was unavailable isn't flagged."""
+    meter = _meter()
+    meter.add_reading("import", 10.0, nz("2026-11-17 00:00"))
+    meter.mark_unavailable("import", nz("2026-11-17 00:01"))
+    meter.add_reading("import", 12.0, nz("2026-11-17 03:00"))
+    assert not meter.slow
+
+
+def _pending_kwh(meter: BillingMeter, side: int = 0) -> dict[str, float]:
+    """Return pending energy by local period start, for one side."""
+    return {
+        key.astimezone(NZ_TZ).strftime("%H:%M"): round(
+            (usage.import_kwh, usage.export_kwh)[side], 6
+        )
+        for key, usage in sorted(meter.pending.items())
+        if (usage.import_kwh, usage.export_kwh)[side]
+    }
+
+
+def test_steady_power_is_counted_into_its_periods() -> None:
+    """Held power reaches each period when the meter advances, not later."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", 2.0, nz("2026-11-17 10:00"))
+    meter.advance(nz("2026-11-17 10:30"))
+    assert _pending_kwh(meter) == {"10:00": 1.0}
+    meter.advance(nz("2026-11-17 11:00"))
+    assert _pending_kwh(meter) == {"10:00": 1.0, "10:30": 1.0}
+
+
+def test_power_idle_for_hours_puts_nothing_in_them() -> None:
+    """A sensor that only reports changes places energy exactly."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", 0.0, nz("2026-11-17 00:00"))
+    meter.add_power("import", 3.0, nz("2026-11-17 06:00"))
+    meter.add_power("import", 0.0, nz("2026-11-17 06:20"))
+    assert _pending_kwh(meter) == {"06:00": 1.0}
+
+
+def test_negative_power_counts_as_none() -> None:
+    """A side's power below zero is no energy on that side."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", -2.0, nz("2026-11-17 10:00"))
+    meter.advance(nz("2026-11-17 11:00"))
+    assert _pending_kwh(meter) == {}
+
+
+def test_power_gap_over_a_restart_is_not_counted() -> None:
+    """The power while Home Assistant was down is unknown, so not counted."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", 2.0, nz("2026-11-17 10:00"))
+    meter.advance(nz("2026-11-17 10:15"))
+    loaded = BillingMeter(TARIFF, 1, meter.as_dict(), {"import": "power"})
+    assert loaded.since == meter.since  # the cycle stays complete as it was
+    loaded.advance(nz("2026-11-17 12:00"))
+    loaded.add_power("import", 2.0, nz("2026-11-17 12:00"))
+    loaded.add_power("import", 0.0, nz("2026-11-17 12:30"))
+    assert _pending_kwh(loaded) == {"10:00": 0.5, "12:00": 1.0}
+
+
+def test_power_gap_while_unavailable_is_not_counted() -> None:
+    """Power counts up to when the sensor went unavailable, then afresh."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", 2.0, nz("2026-11-17 10:00"))
+    meter.advance(nz("2026-11-17 10:10"))
+    assert meter.mark_unavailable("import", nz("2026-11-17 10:15"))
+    meter.advance(nz("2026-11-17 11:00"))
+    meter.add_power("import", 2.0, nz("2026-11-17 11:00"))
+    meter.advance(nz("2026-11-17 11:30"))
+    assert _pending_kwh(meter) == {"10:00": 0.5, "11:00": 1.0}
+
+
+def test_reload_counts_the_power_gap() -> None:
+    """On a reload nothing was down: the held power counts across it."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", 2.0, nz("2026-11-17 10:00"))
+    loaded = BillingMeter(TARIFF, 1, meter.as_dict(), {"import": "power"})
+    loaded.forget_restart()
+    loaded.advance(nz("2026-11-17 10:30"))
+    assert _pending_kwh(loaded) == {"10:00": 1.0}
+
+
+def test_power_stamped_before_the_last_advance_holds_from_it() -> None:
+    """A reading older than the baseline isn't lost: it holds from there on."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", 2.0, nz("2026-11-17 10:00"))
+    meter.advance(nz("2026-11-17 10:15"))
+    assert not meter.add_power("import", 0.0, nz("2026-11-17 10:14"))
+    meter.advance(nz("2026-11-17 11:00"))
+    assert _pending_kwh(meter) == {"10:00": 0.5}
+
+
+def test_power_only_meter_starts_the_new_cycle() -> None:
+    """With only power sensors, the new cycle still starts on its day."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", 0.0, nz("2026-11-30 23:50"))
+    assert meter.tick(nz("2026-12-01 00:05"))
+    assert meter.bill(nz("2026-12-01 00:05")) is not None
+
+
+def test_power_only_meter_survives_a_cycle_day_change() -> None:
+    """Carried totals and a new cycle day restart metering from the baseline."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "power"})
+    meter.add_power("import", 1.0, nz("2026-11-17 10:00"))
+    data = meter.as_dict()
+    data["cycles"] = [_stored_1_1_cycle("2026-11-01", "2026-11-01T00:00:00+13:00")]
+    loaded = BillingMeter(TARIFF, 15, data, {"import": "power"})
+    assert loaded.since == nz("2026-11-17 10:00")
+
+
 def test_falling_reading_is_a_reset() -> None:
     """A meter that resets (e.g. a daily total) counts its new value."""
     meter = _meter()
@@ -187,6 +365,67 @@ def test_settling_twice_counts_once() -> None:
     assert meter.settle(nz("2026-11-17 10:00"), 0.05)
     assert not meter.settle(nz("2026-11-17 10:00"), 0.05)
     assert meter.import_cost == pytest.approx(template_import(0.05, peak=False))
+
+
+def _assert_reload_keeps_the_bill(meter: BillingMeter, now: datetime) -> None:
+    """Assert the bill is the same after a save and load."""
+    live = meter.bill(now)
+    loaded = BillingMeter(TARIFF, meter.cycle_day, meter.as_dict()).bill(now)
+    assert live is not None
+    assert loaded is not None
+    assert loaded.kwh == {band: pytest.approx(row) for band, row in live.kwh.items()}
+    assert {b: asdict(c) for b, c in loaded.charges.items()} == {
+        b: pytest.approx(asdict(c)) for b, c in live.charges.items()
+    }
+    assert loaded.provisional_periods == live.provisional_periods
+    assert loaded.unsettled_periods == live.unsettled_periods
+    assert loaded.unpriced_periods == live.unpriced_periods
+
+
+def test_late_energy_joins_a_settled_period() -> None:
+    """Energy spread back into a settled period adds to it at its price."""
+    meter = _meter()
+    meter.add_reading("import", 0.0, nz("2026-11-17 10:00"))
+    meter.add_reading("import", 1.0, nz("2026-11-17 10:15"))
+    meter.settle(nz("2026-11-17 10:00"), 0.10)
+    meter.set_live_spot(nz("2026-11-17 10:30"), 0.12)
+    # Half of this lands in the 10:00 period, which is already final.
+    meter.add_reading("import", 2.0, nz("2026-11-17 10:45"))
+    now = nz("2026-11-17 10:45")
+    bill = meter.bill(now)
+    assert bill is not None
+    assert bill.provisional_periods == 1  # only 10:30
+    # Its settled price is already known; settling it again changes nothing.
+    assert not meter.settle(nz("2026-11-17 10:00"), 0.10)
+    assert meter.settle(nz("2026-11-17 10:30"), 0.10)
+
+    bill = meter.bill(now)
+    assert bill is not None
+    assert bill.import_kwh == pytest.approx(2.0)
+    assert bill.provisional_periods == 0
+    assert meter.import_cost == pytest.approx(2 * template_import(0.10, peak=False))
+    _assert_reload_keeps_the_bill(meter, now)
+
+
+def test_late_energy_joins_an_unsettled_period_at_its_price() -> None:
+    """A period made final unsettled keeps its provisional price for late energy."""
+    meter = _meter()
+    meter.add_reading("import", 0.0, nz("2026-11-17 10:00"))
+    meter.set_live_spot(nz("2026-11-17 10:00"), 0.20)
+    meter.add_reading("import", 1.0, nz("2026-11-17 10:15"))
+    meter.tick(nz("2026-11-19 10:30"))  # final, unsettled, at the live spot
+    # A reading after a long gap spreads energy back into it: 15 of the
+    # 2,900 minutes the second kWh was spread over fall in it.
+    meter.add_reading("import", 2.0, nz("2026-11-19 10:35"))
+    assert not meter.settle(nz("2026-11-17 10:00"), 0.05)
+
+    now = nz("2026-11-19 11:00")
+    bill = meter.bill(now)
+    assert bill is not None
+    assert bill.unsettled_periods == 1
+    kwh = 1.0 + 15 / 2900
+    assert meter.import_cost == pytest.approx(kwh * template_import(0.20, peak=False))
+    _assert_reload_keeps_the_bill(meter, now)
 
 
 def test_unsettled_period_counts_at_the_live_spot() -> None:

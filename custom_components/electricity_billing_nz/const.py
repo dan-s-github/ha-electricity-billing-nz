@@ -25,6 +25,8 @@ CONF_NETWORK_OVERRIDES = "network_overrides"
 # Billing cycle: off until an import energy sensor is set.
 CONF_IMPORT_ENERGY_ENTITY = "import_energy_entity"
 CONF_EXPORT_ENERGY_ENTITY = "export_energy_entity"
+# One signed grid power sensor: positive is import, negative export.
+CONF_GRID_POWER_ENTITY = "grid_power_entity"
 CONF_BILLING_CYCLE_DAY = "billing_cycle_day"
 DEFAULT_BILLING_CYCLE_DAY = 1
 # Every month has a 28th.
