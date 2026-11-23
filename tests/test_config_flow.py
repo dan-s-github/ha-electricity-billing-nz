@@ -23,7 +23,7 @@ from .helpers import nz
 
 RETAILER_FORM = {
     "plan_name": "ecoWHOLESALE",
-    "import_margin": 2.86,
+    "import_margin": 2.80,
     "export_margin": 1.90,
     "transmission": 3.02,
     "levy": 0.20,
@@ -120,7 +120,7 @@ async def test_full_flow(hass: HomeAssistant) -> None:
             {
                 "effective_from": "2000-01-01",
                 "plan_name": "ecoWHOLESALE",
-                "import_margin": 0.0286,
+                "import_margin": 0.028,
                 "export_margin": 0.019,
                 "transmission": 0.0302,
                 "levy": 0.002,

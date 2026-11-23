@@ -259,6 +259,42 @@
       },
       "export_earnings_total": {
         "name": "Export earnings total"
+      },
+      "retailer_import_margin": {
+        "name": "Import margin"
+      },
+      "retailer_export_margin": {
+        "name": "Export margin"
+      },
+      "transmission_rate": {
+        "name": "Transmission rate"
+      },
+      "levy_rate": {
+        "name": "Electricity Authority levy"
+      },
+      "metering_daily_charge": {
+        "name": "Metering daily charge"
+      },
+      "retailer_daily_charge": {
+        "name": "Retailer daily charge"
+      },
+      "network_import_rate": {
+        "name": "Network import rate"
+      },
+      "network_export_credit": {
+        "name": "Network export credit"
+      },
+      "network_daily_charge": {
+        "name": "Network daily charge"
+      },
+      "loss_factor": {
+        "name": "Loss factor"
+      },
+      "metering_since": {
+        "name": "Metering since"
+      },
+      "retailer_export_floor": {
+        "name": "Export floor"
       }
     },
     "binary_sensor": {

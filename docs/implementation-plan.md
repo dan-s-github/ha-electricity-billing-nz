@@ -188,7 +188,7 @@ The parity checks for Phase 1 (Verification 3) and Phase 2 (Step 6) need the tem
    - `tools/deploy-dev.sh` in `electricity-pricing` drops the `battery_*` automations (ruamel.yaml, keeping comments) and maps the ids from step 4.
    - It refuses to copy if any `number.set_value`, `switch.turn_on` / `turn_off` or `time.set_value` is left.
    - It then copies the file over `ssh ha-dev`, checks the config through the API and, with `--restart`, restarts.
-6. **Margins on ha-dev.** The "Home" entry has 0 import and export margins. For parity it needs a retailer version with +2.86 c import and −1.90 c export.
+6. **Margins on ha-dev.** The "Home" entry has 0 import and export margins. For parity it needs a retailer version with +2.80 c import and −1.90 c export (the rates Ecotricity support confirmed).
 
 ### Options (no migration; billing is off until an import energy entity is set)
 

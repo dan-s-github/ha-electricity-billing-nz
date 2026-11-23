@@ -28,6 +28,21 @@ uv run --group dev pytest
 
 Commit `uv.lock`: the GitHub workflows install with `uv sync --frozen`.
 
+## Checking against an invoice
+
+`tools/replay_bill.py` rebuilds a past month's bill from recorded grid power
+and settled prices, using the integration's billing code, so it can be
+compared with the retailer's invoice line by line. It reads InfluxDB 1.x
+query responses as the Home Assistant InfluxDB integration stores states;
+the module docstring lists the files and queries.
+
+```bash
+uv run --group dev python -m tools.replay_bill --month 2026-10 --data DIR
+```
+
+Keep the data directory out of the repository: the config entry holds the
+ICP number.
+
 ## Continuous Integration
 
 - `ci.yml` runs pytest and mypy on every push and pull request.

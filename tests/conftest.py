@@ -35,7 +35,7 @@ FORECAST = "sensor.ros0221_day_ahead_forecast"
 ECOTRICITY = {
     "effective_from": "2000-01-01",
     "plan_name": "ecoWHOLESALE",
-    "import_margin": 0.0286,
+    "import_margin": 0.028,
     "export_margin": 0.019,
     "transmission": 0.0302,
     "levy": 0.002,

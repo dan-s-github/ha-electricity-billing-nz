@@ -50,7 +50,7 @@ def template_import(
     if network is None or loss is None:
         network = 0.1504 if peak else 0.0457
         loss = 1.0476
-    return ((spot + 0.0286) * loss + network + 0.0302 + 0.002) * 1.15
+    return ((spot + 0.028) * loss + network + 0.0302 + 0.002) * 1.15
 
 
 def template_export(spot: float, *, peak: bool) -> float:
