@@ -501,6 +501,9 @@ class BillingMeter:
         # side's meter doesn't move it, so the new meter may not have a
         # reading yet.
         self.since: datetime | None = None
+        # Sides metered before, by this meter or one it replaced, even if
+        # the current meter hasn't reported yet.
+        self._metered: set[Side] = set()
         # Keyed by cycle start; only the current and previous cycles are kept.
         self.cycles: dict[date, Cycle] = {}
         # Keyed by period start in UTC.
@@ -524,12 +527,15 @@ class BillingMeter:
         self._exempt = set(self.readings) | set(self.power)
         # A side metered for the first time moves it on: its energy before is
         # unknown. A replaced meter doesn't: the old one metered until then.
+        # Stored as well as derived from the readings, so a replaced meter
+        # that hasn't reported yet stays metered across further restarts.
         metered = {
             side
             for key in ("readings", "power")
             for side in data.get(key, {})
             if side in stored_sources
-        }
+        } | {side for side in data.get("metered", ()) if side in stored_sources}
+        self._metered = metered & set(self.sides)
         if data.get("since") and all(
             self._has_baseline(s) or s in metered for s in self.sides
         ):
@@ -605,6 +611,12 @@ class BillingMeter:
             "cycle_day": self.cycle_day,
             "sources": self.sources,
             "since": self.since.isoformat() if self.since else None,
+            # Only alongside since: the coverage it was saved for.
+            "metered": sorted(
+                s for s in self.sides if s in self._metered or self._has_baseline(s)
+            )
+            if self.since
+            else [],
             "readings": {
                 side: {"value": r.value, "at": r.at.isoformat()}
                 for side, r in self.readings.items()

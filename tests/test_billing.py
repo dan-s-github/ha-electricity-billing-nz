@@ -576,6 +576,37 @@ def test_replaced_meter_keeps_the_cycle_metered_since() -> None:
     assert loaded.cycles[bill.start].since == nz("2026-11-01 00:00")
 
 
+def test_replaced_meter_keeps_since_across_restarts_before_reporting() -> None:
+    """Restarting again before the new meter reports keeps the cycle complete."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "meter_a"})
+    meter.add_reading("import", 1200.0, nz("2026-11-01 00:00"))
+
+    swapped = BillingMeter(TARIFF, 1, meter.as_dict(), sources={"import": "power"})
+    restarted = BillingMeter(TARIFF, 1, swapped.as_dict(), sources={"import": "power"})
+    assert restarted.since == nz("2026-11-01 00:00")
+    restarted.add_power("import", 1.0, nz("2026-11-20 10:00"))
+    bill = restarted.bill(nz("2026-11-20 10:30"))
+    assert bill is not None
+    assert bill.complete
+
+
+def test_removed_side_isnt_metered_when_added_again() -> None:
+    """A side dropped from the sources starts partial when it comes back."""
+    meter = BillingMeter(TARIFF, 1, sources={"import": "meter_a", "export": "meter_b"})
+    meter.add_reading("import", 1.0, nz("2026-11-01 00:00"))
+    meter.add_reading("export", 1.0, nz("2026-11-01 00:00"))
+    data = meter.as_dict()
+    assert data["metered"] == ["export", "import"]
+    import_only = BillingMeter(TARIFF, 1, data, sources={"import": "meter_a"})
+    readded = BillingMeter(
+        TARIFF,
+        1,
+        import_only.as_dict(),
+        sources={"import": "meter_a", "export": "meter_c"},
+    )
+    assert readded.since is None
+
+
 def test_replacing_a_meter_and_the_cycle_day_together() -> None:
     """Carried totals, a replaced meter and a new cycle day load cleanly."""
     meter = BillingMeter(TARIFF, 1, sources={"import": "meter_a"})
