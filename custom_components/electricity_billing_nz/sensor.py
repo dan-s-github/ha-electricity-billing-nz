@@ -145,6 +145,7 @@ OPTIONAL_KEYS = (
     "export_price_live",
     "import_price_forecast",
     "export_price_forecast",
+    "retailer_export_floor",
     *BILLING_KEYS,
 )
 
@@ -196,7 +197,7 @@ async def async_setup_entry(
             ]
     async_add_entities(entities)
 
-    # Drop sensors whose optional source was removed in the options.
+    # Drop sensors whose optional source, or the plan's export floor, was removed.
     registry = er.async_get(hass)
     created = {entity.unique_id for entity in entities}
     for key in OPTIONAL_KEYS:
@@ -595,7 +596,7 @@ class MeteringSinceSensor(WriteOnChange, CycleSensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return whether the cycle is complete, and the meters read."""
+        """Return whether the cycle is complete, and the meters configured."""
         bill = self.engine.bill
         if bill is None:
             return None

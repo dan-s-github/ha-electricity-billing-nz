@@ -766,6 +766,15 @@ async def test_export_floor_diagnostic(
     await _setup(hass, entry)
     assert _price(hass, "sensor.home_export_floor") == pytest.approx(0.01)
 
+    # Dropping the floor from the plan removes its sensor.
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "retailer_versions": [ECOTRICITY]}
+    )
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.home_export_floor") is None
+    assert er.async_get(hass).async_get("sensor.home_export_floor") is None
+
 
 async def test_rate_diagnostics_only_write_changes(
     hass: HomeAssistant, config_entry: MockConfigEntry, freezer: FrozenDateTimeFactory

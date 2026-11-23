@@ -90,7 +90,7 @@ off-peak) that period *t* falls in, using the lines company's peak windows.
     and the previous cycle's
   - import cost and export earnings totals since billing was set up
   - diagnostic: when metering of the current cycle began, whether the cycle
-    is complete, and the meters read
+    is complete, and the meter entities configured
 - **Binary sensor**: on during peak.
 - **Services**: `price_at` (the price for a given time and spot price, for
   backtests) and `export_versions` (the rate versions in force, as YAML).

@@ -233,6 +233,60 @@ def test_unsettled_period_takes_the_spot_before_it() -> None:
     assert bill.import_energy_rate == pytest.approx(0.05 + ECOTRICITY["import_margin"])
 
 
+def test_first_unsettled_period_takes_the_spot_before_the_cycle() -> None:
+    """A settled spot from before the cycle prices its first unsettled periods."""
+    power = [[_epoch("2026-10-01 00:00"), 2000.0], [_epoch("2026-10-01 00:30"), 0]]
+    prices = _every_period("2026-10", 0.05)
+    del prices[nz("2026-09-30 23:30").astimezone(UTC)]
+    del prices[nz("2026-10-01 00:00").astimezone(UTC)]
+    prices[nz("2026-09-30 22:00").astimezone(UTC)] = 0.07
+    bill = replay(load_tariff(ENTRY, None), power, prices, "2026-10").bill
+    assert bill.unpriced_periods == 0
+    assert bill.import_energy_rate == pytest.approx(0.07 + ECOTRICITY["import_margin"])
+
+
+def test_unsettled_energy_without_any_earlier_spot_is_an_error() -> None:
+    """Energy that no settled spot can price fails rather than being dropped."""
+    power = [[_epoch("2026-10-01 00:00"), 2000.0], [_epoch("2026-10-01 00:30"), 0]]
+    prices = _every_period("2026-10", 0.05)
+    del prices[nz("2026-09-30 23:30").astimezone(UTC)]
+    del prices[nz("2026-10-01 00:00").astimezone(UTC)]
+    with pytest.raises(ValueError, match="No settled price"):
+        replay(load_tariff(ENTRY, None), power, prices, "2026-10")
+
+
+def _replay_gaps(gaps: list[Gap]) -> replay_bill.Replay:
+    return replay(
+        load_tariff(ENTRY, None),
+        [[_epoch("2026-10-15 10:00"), 0.0]],
+        _every_period("2026-10", 0.05),
+        "2026-10",
+        gaps=gaps,
+    )
+
+
+def test_overlapping_gaps_with_energy_are_rejected() -> None:
+    """Overlapping gaps would count their known energy twice."""
+    gaps = [
+        Gap(nz("2026-10-15 11:00"), nz("2026-10-15 20:00"), import_kwh=1.5),
+        Gap(nz("2026-10-15 12:00"), nz("2026-10-15 13:00")),  # no energy
+        Gap(nz("2026-10-15 15:00"), nz("2026-10-15 18:00"), import_kwh=1.0),
+    ]
+    with pytest.raises(ValueError, match="overlap"):
+        _replay_gaps(gaps)
+
+
+def test_overlapping_gaps_without_energy_are_allowed() -> None:
+    """Gaps only marking the sensor unavailable can overlap, as can other months'."""
+    gaps = [
+        Gap(nz("2026-10-15 11:00"), nz("2026-10-15 16:00"), import_kwh=1.5),
+        Gap(nz("2026-10-15 15:00"), nz("2026-10-15 18:00")),
+        Gap(nz("2026-12-01 00:00"), nz("2026-12-03 00:00"), import_kwh=1.0),
+        Gap(nz("2026-12-02 00:00"), nz("2026-12-04 00:00"), import_kwh=1.0),
+    ]
+    assert _replay_gaps(gaps).bill.import_kwh == pytest.approx(1.5)
+
+
 def test_import_margin_needs_retailer_versions() -> None:
     """Overriding a margin the entry doesn't have is an error, not a no-op."""
     with pytest.raises(ValueError, match="retailer versions"):

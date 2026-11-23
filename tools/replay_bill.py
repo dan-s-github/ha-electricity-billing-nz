@@ -338,6 +338,7 @@ def replay(  # noqa: PLR0913
     gaps = sorted(
         (g for g in gaps if g.since < end and g.until > start), key=lambda g: g.since
     )
+    _check_gaps(gaps)
     started = list(gaps)  # gaps whose start hasn't been reached
     for epoch, watts in opening + window:
         at = datetime.fromtimestamp(epoch, UTC)
@@ -361,6 +362,9 @@ def replay(  # noqa: PLR0913
                 meter.add_energy(side, gap.since, gap.until, kwh)
 
     period = start.astimezone(UTC) - PERIOD
+    # The latest settled spot before the replay, for unsettled periods.
+    earlier = max((key for key in prices if key < period), default=None)
+    meter.latest_spot = None if earlier is None else prices[earlier]
     while period < end:
         if period in prices:
             meter.settle(period, prices[period])
@@ -368,6 +372,9 @@ def replay(  # noqa: PLR0913
         elif (usage := meter.pending.get(period)) is not None:
             # Without a live source, the integration prices a period that
             # hasn't settled at the latest settled spot at the time.
+            if meter.latest_spot is None and (usage.import_kwh or usage.export_kwh):
+                msg = f"No settled price at or before {period} to price its energy"
+                raise ValueError(msg)
             usage.live_spot = meter.latest_spot
         period += PERIOD
     unsettled = sorted(
@@ -380,6 +387,22 @@ def replay(  # noqa: PLR0913
         msg = f"No power recorded for the cycle starting in {month}"
         raise ValueError(msg)
     return Replay(bill, unsettled)
+
+
+def _check_gaps(gaps: Iterable[Gap]) -> None:
+    """Reject overlapping gaps with known energy: it would be counted twice."""
+    latest: Gap | None = None  # the energy gap ending last so far
+    for gap in sorted(gaps, key=lambda g: g.since):
+        if gap.import_kwh <= 0 and gap.export_kwh <= 0:
+            continue
+        if latest is not None and gap.since < latest.until:
+            msg = (
+                f"Gaps with known energy overlap: {latest.since} to {latest.until} "
+                f"and {gap.since} to {gap.until}"
+            )
+            raise ValueError(msg)
+        if latest is None or gap.until > latest.until:
+            latest = gap
 
 
 def _stop(meter: BillingMeter, at: datetime) -> None:
