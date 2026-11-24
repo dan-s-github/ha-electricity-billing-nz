@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ha-electricity-billing-nz"
-version = "0.0.0"
+version = "0.1.0rc0"
 description = "Home Assistant custom integration for Electricity Billing NZ"
 readme = "README.md"
 license = { text = "MIT" }

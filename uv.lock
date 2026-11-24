@@ -1206,7 +1206,7 @@ wheels = [
 
 [[package]]
 name = "ha-electricity-billing-nz"
-version = "0.0.0"
+version = "0.1.0rc0"
 source = { editable = "." }
 dependencies = [
     { name = "holidays" },
