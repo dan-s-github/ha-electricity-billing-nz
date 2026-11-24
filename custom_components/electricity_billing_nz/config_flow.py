@@ -575,6 +575,11 @@ class ElectricityBillingNzConfigFlow(ConfigFlow, domain=DOMAIN):
 class OptionsFlowHandler(OptionsFlowWithReload):
     """Add rate versions and change source entities."""
 
+    # The retailer version being entered: its date, and for an edit, the
+    # date it was stored under.
+    _retailer_date: str
+    _retailer_editing: str | None = None
+
     async def async_step_init(
         self,
         user_input: dict[str, Any] | None = None,  # noqa: ARG002
@@ -584,6 +589,8 @@ class OptionsFlowHandler(OptionsFlowWithReload):
             step_id="init",
             menu_options=[
                 "add_retailer_version",
+                "edit_retailer_version",
+                "delete_retailer_version",
                 "add_network_override",
                 "sources",
                 "billing",
@@ -592,41 +599,178 @@ class OptionsFlowHandler(OptionsFlowWithReload):
             ],
         )
 
-    def _latest_retailer(self) -> Mapping[str, Any]:
-        versions = self.config_entry.options.get(CONF_RETAILER_VERSIONS, [])
-        return max(versions, key=lambda v: v[CONF_EFFECTIVE_FROM], default={})
+    def _retailer_versions(self) -> list[Mapping[str, Any]]:
+        """Return the stored retailer versions, oldest first."""
+        return sorted(
+            self.config_entry.options.get(CONF_RETAILER_VERSIONS, []),
+            key=lambda v: v[CONF_EFFECTIVE_FROM],
+        )
+
+    def _save_retailer_versions(
+        self, versions: list[Mapping[str, Any]]
+    ) -> ConfigFlowResult:
+        return self.async_create_entry(
+            data={
+                **self.config_entry.options,
+                CONF_RETAILER_VERSIONS: sorted(
+                    versions, key=lambda v: v[CONF_EFFECTIVE_FROM]
+                ),
+            }
+        )
+
+    def _check_retailer_date(self, effective_from: str) -> str | None:
+        """
+        Return an error key if a new version can't start on ``effective_from``.
+
+        The first version is the baseline for every earlier period, so others
+        start after it; no two start on the same day.
+        """
+        dates = [v[CONF_EFFECTIVE_FROM] for v in self._retailer_versions()]
+        if date.fromisoformat(effective_from) <= date.fromisoformat(dates[0]):
+            return "not_after_first"
+        if effective_from in dates:
+            return "date_in_use"
+        return None
+
+    def _retailer_choices(self, *, include_first: bool) -> SelectSelector:
+        versions = self._retailer_versions()
+        if not include_first:
+            versions = versions[1:]
+        return _select(
+            [
+                SelectOptionDict(
+                    value=v[CONF_EFFECTIVE_FROM],
+                    label=" · ".join(
+                        filter(None, [v[CONF_EFFECTIVE_FROM], v.get(CONF_PLAN_NAME)])
+                    ),
+                )
+                for v in versions
+            ]
+        )
+
+    def _first_retailer_date(self) -> str:
+        return self._retailer_versions()[0][CONF_EFFECTIVE_FROM]
 
     async def async_step_add_retailer_version(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Add retailer charges that apply from a date."""
-        latest = self._latest_retailer()
+        """Pick the date new retailer charges apply from."""
         errors: dict[str, str] = {}
         if user_input is not None:
             effective_from = str(user_input[CONF_EFFECTIVE_FROM])
-            if latest and date.fromisoformat(effective_from) <= date.fromisoformat(
-                latest[CONF_EFFECTIVE_FROM]
-            ):
-                errors[CONF_EFFECTIVE_FROM] = "not_after_latest"
+            if error := self._check_retailer_date(effective_from):
+                errors[CONF_EFFECTIVE_FROM] = error
             else:
-                versions = [
-                    *self.config_entry.options.get(CONF_RETAILER_VERSIONS, []),
-                    retailer_version_from_form(user_input, effective_from),
-                ]
-                return self.async_create_entry(
-                    data={**self.config_entry.options, CONF_RETAILER_VERSIONS: versions}
-                )
+                self._retailer_date = effective_from
+                self._retailer_editing = None
+                return await self.async_step_retailer_version()
 
         return self.async_show_form(
             step_id="add_retailer_version",
             data_schema=self.add_suggested_values_to_schema(
-                _retailer_schema(include_gst=False, include_date=True),
-                user_input or retailer_form_from_version(latest),
+                probatio.Schema(
+                    {probatio.Required(CONF_EFFECTIVE_FROM): DateSelector()}
+                ),
+                user_input,
             ),
             errors=errors,
-            description_placeholders={
-                "latest": latest.get(CONF_EFFECTIVE_FROM, FIRST_EFFECTIVE_FROM)
-            },
+            description_placeholders={"first": self._first_retailer_date()},
+        )
+
+    async def async_step_edit_retailer_version(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Pick the retailer version to edit."""
+        if user_input is not None:
+            self._retailer_editing = user_input[CONF_EFFECTIVE_FROM]
+            self._retailer_date = self._retailer_editing
+            return await self.async_step_retailer_version()
+
+        return self.async_show_form(
+            step_id="edit_retailer_version",
+            data_schema=probatio.Schema(
+                {
+                    probatio.Required(CONF_EFFECTIVE_FROM): self._retailer_choices(
+                        include_first=True
+                    )
+                }
+            ),
+        )
+
+    async def async_step_retailer_version(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """
+        Enter a retailer version's charges.
+
+        A new version is prefilled from the one in force on its date, so only
+        the charges that changed need entering. An edited version can move to
+        another date, except the first, which covers every earlier period.
+        """
+        versions = self._retailer_versions()
+        editing = self._retailer_editing
+        movable = editing is not None and editing != self._first_retailer_date()
+        shown = self._retailer_date
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            effective_from = shown
+            if movable:
+                effective_from = shown = str(user_input[CONF_EFFECTIVE_FROM])
+            # Keeping its own date is fine; a new one must be free.
+            if effective_from != editing and (
+                error := self._check_retailer_date(effective_from)
+            ):
+                errors[CONF_EFFECTIVE_FROM] = error
+            if not errors:
+                kept = [v for v in versions if v[CONF_EFFECTIVE_FROM] != editing]
+                return self._save_retailer_versions(
+                    [*kept, retailer_version_from_form(user_input, effective_from)]
+                )
+
+        # The version being edited, or for a new one, the one in force on its
+        # date: versions are sorted, and the date is after the first.
+        day = date.fromisoformat(self._retailer_date)
+        base = [
+            v for v in versions if date.fromisoformat(v[CONF_EFFECTIVE_FROM]) <= day
+        ][-1]
+        suggested = retailer_form_from_version(base)
+        if movable:
+            suggested[CONF_EFFECTIVE_FROM] = self._retailer_date
+        return self.async_show_form(
+            step_id="retailer_version",
+            data_schema=self.add_suggested_values_to_schema(
+                _retailer_schema(include_gst=False, include_date=movable),
+                user_input or suggested,
+            ),
+            errors=errors,
+            description_placeholders={"effective_from": shown},
+        )
+
+    async def async_step_delete_retailer_version(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Delete a retailer version; the one before it then applies instead."""
+        if len(self._retailer_versions()) < 2:  # noqa: PLR2004
+            return self.async_abort(reason="no_retailer_version_to_delete")
+        if user_input is not None:
+            return self._save_retailer_versions(
+                [
+                    v
+                    for v in self._retailer_versions()
+                    if v[CONF_EFFECTIVE_FROM] != user_input[CONF_EFFECTIVE_FROM]
+                ]
+            )
+
+        return self.async_show_form(
+            step_id="delete_retailer_version",
+            data_schema=probatio.Schema(
+                {
+                    probatio.Required(CONF_EFFECTIVE_FROM): self._retailer_choices(
+                        include_first=False
+                    )
+                }
+            ),
+            description_placeholders={"first": self._first_retailer_date()},
         )
 
     async def async_step_add_network_override(

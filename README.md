@@ -159,7 +159,13 @@ for the wholesale price.
 
 When a rate changes later, open the entry's **Configure** menu:
 
-- **Add retailer rate version**: new retailer values from a date.
+- **Add retailer rate version**: new retailer values from a date, which can
+  fall between existing versions. The form starts from the values in force
+  on that date, so you only change what differs (e.g. just the metering
+  charge).
+- **Edit retailer rate version** / **Delete retailer rate version**: fix a
+  version's values or date, or remove it. The first version covers every
+  earlier period, so its date is fixed and it can't be deleted.
 - **Override network values**: replace bundled network values from a date
   until the next bundled schedule, e.g. when your bill differs. The date
   can't be before the bundled data starts.
@@ -218,9 +224,10 @@ the bill's half-hourly pricing.
   when nothing was used; one that only reports changes has its energy
   spread back to the last change. A power sensor's value holds until the
   next, and is counted into each period as it ends.
-- A rate version or network override dated into the current or previous
-  cycle reprices it when saved. The lifetime cost and earnings totals keep
-  what each period cost when it settled.
+- Adding, editing or deleting a rate version, or adding a network override,
+  reprices the current and previous cycles when saved if it changes their
+  rates. Older cycles and the lifetime cost and earnings totals keep what
+  each period cost when it settled.
 - A reading more than 10% below the last one is a meter reset (e.g. a daily
   total); a smaller drop is ignored.
 - Replacing a meter (say, an energy meter with a power sensor) starts it

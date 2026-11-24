@@ -94,7 +94,8 @@
     "error": {
       "entity_not_found": "Entity not found.",
       "invalid_unit": "The sensor's unit must be c/kWh, NZD/kWh or $/MWh.",
-      "not_after_latest": "Must be after the latest retailer version.",
+      "not_after_first": "Must be after the first retailer version, which covers every earlier period.",
+      "date_in_use": "Another retailer version already starts on this date. Edit that one instead.",
       "no_changes": "Enter at least one value to override.",
       "before_network_data": "Must be on or after {first}, when the bundled network data starts.",
       "duplicate_source": "Pick a different sensor for each source.",
@@ -111,6 +112,8 @@
       "init": {
         "menu_options": {
           "add_retailer_version": "Add retailer rate version",
+          "edit_retailer_version": "Edit retailer rate version",
+          "delete_retailer_version": "Delete retailer rate version",
           "add_network_override": "Override network values",
           "sources": "Change source entities",
           "billing": "Billing cycle",
@@ -120,7 +123,20 @@
       },
       "add_retailer_version": {
         "title": "Add retailer rate version",
-        "description": "The new values apply from the date you pick; earlier periods keep the rates in force then (latest version: {latest}). Per-kWh values in c/kWh, ex GST.",
+        "description": "Pick the date the new charges apply from. It can fall between existing versions: the next step starts from the charges in force on that date, so you only change what's different. The first version ({first}) covers every earlier period.",
+        "data": {
+          "effective_from": "Effective from"
+        }
+      },
+      "edit_retailer_version": {
+        "title": "Edit retailer rate version",
+        "data": {
+          "effective_from": "Version"
+        }
+      },
+      "retailer_version": {
+        "title": "Retailer charges from {effective_from}",
+        "description": "These charges apply from this date until the next version. Per-kWh values in c/kWh, ex GST.",
         "data": {
           "effective_from": "Effective from",
           "plan_name": "Plan name",
@@ -137,6 +153,13 @@
           "export_margin": "Taken off the spot price on export.",
           "transmission": "The retailer's per-kWh transmission line on the bill.",
           "export_floor": "Leave empty if export can go negative with spot."
+        }
+      },
+      "delete_retailer_version": {
+        "title": "Delete retailer rate version",
+        "description": "The version before it then applies until the next one. The first version ({first}) can't be deleted.",
+        "data": {
+          "effective_from": "Version"
         }
       },
       "add_network_override": {
@@ -203,7 +226,8 @@
     },
     "abort": {
       "unknown_network": "The configured lines company or category is not in the bundled network data.",
-      "settled_not_found": "The settled price sensor no longer exists. Remove the entry and add it again with the new sensor."
+      "settled_not_found": "The settled price sensor no longer exists. Remove the entry and add it again with the new sensor.",
+      "no_retailer_version_to_delete": "There is only the first retailer version, which can't be deleted. Edit it instead."
     }
   },
   "entity": {
