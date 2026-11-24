@@ -416,36 +416,179 @@ async def _options(hass: HomeAssistant, entry: MockConfigEntry, step: str) -> di
     )
 
 
+RETAILER_VALUES = {k: v for k, v in RETAILER_FORM.items() if k != "gst_inclusive"}
+
+
+def _with_versions(
+    hass: HomeAssistant, entry: MockConfigEntry, *dates: str
+) -> list[dict]:
+    """Give the entry extra retailer versions, each with its own import margin."""
+    first = entry.options["retailer_versions"][0]
+    versions = [
+        first,
+        *(
+            {**first, "effective_from": day, "import_margin": 0.03 + i / 1000}
+            for i, day in enumerate(dates)
+        ),
+    ]
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "retailer_versions": versions}
+    )
+    return versions
+
+
 async def test_add_retailer_version(
     hass: HomeAssistant, config_entry: MockConfigEntry
 ) -> None:
-    """A new retailer version is appended, prefilled from the latest."""
+    """A new retailer version is prefilled from the one in force on its date."""
+    _with_versions(hass, config_entry, "2025-04-01", "2026-04-01")
     result = await _options(hass, config_entry, "add_retailer_version")
     assert result["step_id"] == "add_retailer_version"
-
-    form = {k: v for k, v in RETAILER_FORM.items() if k != "gst_inclusive"}
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {**form, "effective_from": "2027-04-01", "import_margin": 3.1},
+        result["flow_id"], {"effective_from": "2025-09-01"}
+    )
+    assert result["step_id"] == "retailer_version"
+    assert "effective_from" not in result["data_schema"].schema
+    suggested = {
+        str(key): key.description["suggested_value"]
+        for key in result["data_schema"].schema
+        if key.description
+    }
+    # The 2025-04-01 version, not the latest.
+    assert suggested["import_margin"] == pytest.approx(3.0)
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {**RETAILER_VALUES, "metering_daily": 0.4}
     )
     await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     versions = config_entry.options["retailer_versions"]
-    assert [v["effective_from"] for v in versions] == ["2000-01-01", "2027-04-01"]
-    assert versions[-1]["import_margin"] == 0.031
+    assert [v["effective_from"] for v in versions] == [
+        "2000-01-01",
+        "2025-04-01",
+        "2025-09-01",
+        "2026-04-01",
+    ]
+    assert versions[2]["metering_daily"] == 0.4
+    tariff = config_entry.runtime_data.engine.tariff
+    assert [r.metering_daily for r in tariff.retailer] == [0.35, 0.35, 0.4, 0.35]
 
 
-async def test_retailer_version_must_be_newer(
+@pytest.mark.parametrize(
+    ("day", "error"),
+    [("1999-01-01", "not_after_first"), ("2000-01-01", "not_after_first")],
+)
+async def test_retailer_version_after_first(
+    hass: HomeAssistant, config_entry: MockConfigEntry, day: str, error: str
+) -> None:
+    """The first version covers every earlier period, so others start after it."""
+    result = await _options(hass, config_entry, "add_retailer_version")
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"effective_from": day}
+    )
+    assert result["errors"] == {"effective_from": error}
+
+
+async def test_retailer_version_date_in_use(
     hass: HomeAssistant, config_entry: MockConfigEntry
 ) -> None:
-    """Versions are only added after the latest one."""
+    """Two versions can't start on the same day."""
+    _with_versions(hass, config_entry, "2025-04-01")
     result = await _options(hass, config_entry, "add_retailer_version")
-    form = {k: v for k, v in RETAILER_FORM.items() if k != "gst_inclusive"}
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {**form, "effective_from": "1999-01-01"}
+        result["flow_id"], {"effective_from": "2025-04-01"}
     )
-    assert result["errors"] == {"effective_from": "not_after_latest"}
+    assert result["errors"] == {"effective_from": "date_in_use"}
+
+
+async def test_edit_retailer_version(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """An edited version keeps its place unless its date changes."""
+    _with_versions(hass, config_entry, "2025-04-01", "2026-04-01")
+    result = await _options(hass, config_entry, "edit_retailer_version")
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"effective_from": "2025-04-01"}
+    )
+    assert result["step_id"] == "retailer_version"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {**RETAILER_VALUES, "effective_from": "2025-05-01", "transmission": 2.7},
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    versions = config_entry.options["retailer_versions"]
+    assert [v["effective_from"] for v in versions] == [
+        "2000-01-01",
+        "2025-05-01",
+        "2026-04-01",
+    ]
+    assert versions[1]["transmission"] == 0.027
+
+
+async def test_edit_retailer_version_date_in_use(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """An edited version can't move onto another version's date."""
+    _with_versions(hass, config_entry, "2025-04-01", "2026-04-01")
+    result = await _options(hass, config_entry, "edit_retailer_version")
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"effective_from": "2025-04-01"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {**RETAILER_VALUES, "effective_from": "2026-04-01"}
+    )
+    assert result["errors"] == {"effective_from": "date_in_use"}
+    # The title follows the date entered, not the one being edited.
+    assert result["description_placeholders"] == {"effective_from": "2026-04-01"}
+
+
+async def test_edit_first_retailer_version(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """The first version's charges can change, but not its date."""
+    result = await _options(hass, config_entry, "edit_retailer_version")
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"effective_from": "2000-01-01"}
+    )
+    assert "effective_from" not in result["data_schema"].schema
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {**RETAILER_VALUES, "import_margin": 2.86}
+    )
+    await hass.async_block_till_done()
+
+    versions = config_entry.options["retailer_versions"]
+    assert [v["effective_from"] for v in versions] == ["2000-01-01"]
+    assert versions[0]["import_margin"] == 0.0286
+
+
+async def test_delete_retailer_version(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """Any version but the first can be deleted."""
+    _with_versions(hass, config_entry, "2025-04-01", "2026-04-01")
+    result = await _options(hass, config_entry, "delete_retailer_version")
+    choices = result["data_schema"].schema["effective_from"].config["options"]
+    assert [c["value"] for c in choices] == ["2025-04-01", "2026-04-01"]
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"effective_from": "2025-04-01"}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    versions = config_entry.options["retailer_versions"]
+    assert [v["effective_from"] for v in versions] == ["2000-01-01", "2026-04-01"]
+
+
+async def test_delete_only_retailer_version(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """The first version is the only one: nothing to delete."""
+    result = await _options(hass, config_entry, "delete_retailer_version")
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "no_retailer_version_to_delete"
 
 
 async def test_add_network_override(
